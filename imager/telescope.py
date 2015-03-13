@@ -318,6 +318,11 @@ class TransitTelescope(config.Reader):
         return units.c / (1e6 * self.frequencies)
 
     @property
+    def k(self):
+        """The central wavevector magnitude of each frequency band (in metres^-1)."""
+        return 2 * np.pi / self.wavelengths
+
+    @property
     def nfreq(self):
         """The number of frequency bins."""
         return self.frequencies.shape[0]
