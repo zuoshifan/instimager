@@ -21,6 +21,26 @@ class FourierTransformTelescope(telescope.TransitTelescope):
         """The central wavevector magnitude of each frequency band (in metres^-1)."""
         return 2 * np.pi / self.wavelengths
 
+    @abc.abstractproperty
+    def t(self):
+        """Integrating time, Unit: s."""
+        return
+
+    @abc.abstractproperty
+    def Aeff(self):
+        """Effective collecting area of each element, Unit: m^2."""
+        return
+
+    def noise(self, f_index):
+        """Noise temperature for one frequency channel, Unit: K.
+
+        Calculated as lambda^2 * T_sys / A_eff * sqrt(delta_nu * t).
+        """
+        band_width = self.freq_upper - self.freq_lower # MHz
+        return self.wavelengths[f_index]**2 *self.tsys(f_index) / (self.Aeff * np.sqrt(1.0e6 * band_width * self.t))
+
+
+
 
 
 
@@ -264,6 +284,12 @@ class CylinderFFTTelescope(FFTTelescope, Cylinder.CylinderTelescope):
     def nfeeds_v(self):
         """Number of feeds in the v-direction."""
         return self.num_feeds
+
+    @property
+    def Aeff(self):
+        """Effective collecting area of each feed, Unit: m^2."""
+        return self.cylinder_width * self.delta_v
+
 
 
 
