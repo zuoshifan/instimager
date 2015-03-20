@@ -15,30 +15,35 @@ class FourierTransformTelescope(telescope.TransitTelescope):
 
     __metaclass__ = abc.ABCMeta  # Enforce Abstract class
 
+    t_int = config.Property(proptype=float, default=300.0) # integrating time, Unit:s
+
 
     @property
     def k(self):
         """The central wavevector magnitude of each frequency band (in metres^-1)."""
         return 2 * np.pi / self.wavelengths
 
-    @abc.abstractproperty
-    def t(self):
-        """Integrating time, Unit: s."""
-        return
+    # @abc.abstractproperty
+    # def t(self):
+    #     """Integrating time, Unit: s."""
+    #     return
 
     @abc.abstractproperty
     def Aeff(self):
         """Effective collecting area of each element, Unit: m^2."""
         return
 
-    def noise(self, f_index):
-        """Noise temperature for one frequency channel, Unit: K.
+    def noise_amp(self, f_index):
+        """Noise temperature amplitude for one frequency channel, Unit: K.
 
         Calculated as lambda^2 * T_sys / A_eff * sqrt(delta_nu * t).
         """
         band_width = self.freq_upper - self.freq_lower # MHz
-        return self.wavelengths[f_index]**2 *self.tsys(f_index) / (self.Aeff * np.sqrt(1.0e6 * band_width * self.t))
+        return self.wavelengths[f_index]**2 *self.tsys(f_index) / (self.Aeff * np.sqrt(1.0e6 * band_width * self.t_int))
 
+    def _noise(self, baselines, f_index):
+        ## Noise temperature for an array of baselines for one frequency channel, Unit: K
+        return noise_amp(f_index) * np.random.normal(size=baselines.shape)
 
 
 
@@ -82,6 +87,10 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
         """
         return self._beam_map(self.baselines, f_index)
 
+    def noise(self, f_index):
+        """Noise temperature for all baselines for one frequency channel, Unit: K
+        """
+        return self._noise(self.baselines, f_index)
 
 
 
@@ -241,6 +250,13 @@ class UnpolarisedFFTTelescope(FFTTelescope, UnpolarisedFourierTransformTelescope
         kk_z = self.k[ifreq] * self.k_z[ifreq]
 
         return prod[self.hp_pix] / kk_z
+
+    def noise(self, f_index):
+        """Noise temperature for all baselines for one frequency channel, Unit: K
+        """
+        return self._noise(self.bl_grid, f_index)
+
+
 
 
 
