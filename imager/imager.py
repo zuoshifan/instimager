@@ -1,4 +1,5 @@
 import numpy as np
+import healpy as hp
 import h5py
 
 from caput import config
@@ -7,23 +8,27 @@ from caput.pipeline import TaskBase
 from caput.pipeline import SingleH5Base
 from caput.pipeline import PipelineStopIteration
 
-import Fourier
+import fourier
 import rotate as rot
 
 
 sidereal_day = 23.9344696 * 60 * 60 # Unit: s
 
 
-class InitUnpolCylinderFFTTelescope(UnpolarisedCylinderFFTTelescope, TaskBase):
+class InitUnpolCylinderFFTTelescope(fourier.UnpolarisedCylinderFFTTelescope, TaskBase):
     """Initialize an unpolarised cylinder type FFT telescope by reading parameters
     from a YAML configuration file.
 
     """
 
     def setup(self):
+        self.i = 0
         print 'Initialize an unpolarised cylinder type FFT telescope.'
 
     def next(self):
+        if self.i > 0:
+            raise PipelineStopIteration()
+        self.i += 1
         return self # return a initialized instance
 
     def finish(self):
@@ -37,6 +42,7 @@ class GenerateVisibility(TaskBase):
 
     maps = config.Property(proptype=list, default=[])
     t_obs = config.Property(proptype=float, default=0.0) # Unit: s
+    add_noise = config.Property(proptype=bool, default=True)
 
     def setup(self):
         print 'Begin to generate simulated visibilities.'
@@ -55,7 +61,7 @@ class GenerateVisibility(TaskBase):
         if len(self.maps) > 0:
 
             # Load file to find out the map shapes.
-            with h5py.File(maps[0], 'r') as f:
+            with h5py.File(self.maps[0], 'r') as f:
                 mapshape = f['map'].shape
 
             if lfreq > 0:
@@ -64,22 +70,32 @@ class GenerateVisibility(TaskBase):
                 hpmap = np.zeros((lfreq, npol) + mapshape[2:], dtype=np.float64)
 
                 # Read in and sum up the local frequencies of the supplied maps.
-                for mapfile in maps:
+                for mapfile in self.maps:
                     with h5py.File(mapfile, 'r') as f:
                         hpmap += f['map'][sfreq:efreq, :npol]
 
         else:
             raise ValueError('No input sky map')
 
+        # initialize angular positions in healpix map
+        nside = hp.npix2nside(hpmap.shape[-1])
+        telescope._init_trans(nside)
         # rotate the sky map
         hpmap = rot.rotate_map(hpmap, rot=(-rot_ang, 0.0, 0.0))
 
         # calculate the visibilities
         for fi in range(nfreq):
             bfi = telescope.beam_map(fi)
-            vis = np.zeros((bfi.shape[1:]))
+            vis = np.zeros((npol,) + bfi.shape[:-1], dtype=np.complex128)
             for pi in range(npol):
-                vis[pi] = (telescope.beam_map(fi) * hpmap[fi, pi]).sum() * (4 * np.pi / hpmap.shape[-1])
+                vis[pi] = (bfi * hpmap[fi, pi]).sum(axis=-1) * (4 * np.pi / hpmap.shape[-1])
+
+            if self.add_noise:
+                vis += telescope.noise(fi)
 
             with h5py.File('visibilities_%d.hdf5' % fi, 'w') as f:
                 f.create_dataset('vis', data=vis)
+                f.attrs['add_noise'] = self.add_noise
+
+    def finish(self):
+        print 'Generating visibilities done.'

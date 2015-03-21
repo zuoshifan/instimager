@@ -2,8 +2,11 @@ import abc
 import numpy as np
 import healpy as hp
 
+from caput import config
+
 import telescope
-import Cylinder
+import cylinder
+import visibility
 
 
 
@@ -43,7 +46,7 @@ class FourierTransformTelescope(telescope.TransitTelescope):
 
     def _noise(self, baselines, f_index):
         ## Noise temperature for an array of baselines for one frequency channel, Unit: K
-        return noise_amp(f_index) * np.random.normal(size=baselines.shape)
+        return self.noise_amp(f_index) * np.random.normal(size=baselines.shape[:-1])
 
 
 
@@ -272,7 +275,7 @@ class PolarisedFFTTelescope(FFTTelescope, PolarisedFourierTransformTelescope):
 
 
 
-class CylinderFFTTelescope(FFTTelescope, Cylinder.CylinderTelescope):
+class CylinderFFTTelescope(FFTTelescope, cylinder.CylinderTelescope):
     """Cylinder type Fast Fourier Transform Telescopes.
 
     """
@@ -309,15 +312,24 @@ class CylinderFFTTelescope(FFTTelescope, Cylinder.CylinderTelescope):
 
 
 
-class UnpolarisedCylinderFFTTelescope(CylinderFFTTelescope, UnpolarisedFFTTelescope):
+class UnpolarisedCylinderFFTTelescope(CylinderFFTTelescope, cylinder.UnpolarisedCylinderTelescope, UnpolarisedFFTTelescope):
     """A complete class for an Unpolarised Cylinder type Fast Fourier Transform telescope.
     """
 
-    pass
+    ## u-width property override
+    @property
+    def u_width(self):
+        return self.cylinder_width
+
+    ## v-width property override
+    @property
+    def v_width(self):
+        return 0.0
 
 
 
-class PolarisedCylinderFFTTelescope(CylinderFFTTelescope, PolarisedFFTTelescope):
+
+class PolarisedCylinderFFTTelescope(CylinderFFTTelescope, cylinder.PolarisedCylinderTelescope, PolarisedFFTTelescope):
     """A complete class for an Polarised Cylinder type Fast Fourier Transform telescope.
     """
 

@@ -214,7 +214,7 @@ class TransitTelescope(config.Reader):
 
     @property
     def baselines(self):
-        """The unique baselines in the telescope."""
+        """The unique baselines in the telescope. Packed as [[u1, v1], [u2, v2], ...]."""
         if self._baselines == None:
             self.calculate_feedpairs()
 
@@ -316,11 +316,6 @@ class TransitTelescope(config.Reader):
     def wavelengths(self):
         """The central wavelength of each frequency band (in metres)."""
         return units.c / (1e6 * self.frequencies)
-
-    @property
-    def k(self):
-        """The central wavevector magnitude of each frequency band (in metres^-1)."""
-        return 2 * np.pi / self.wavelengths
 
     @property
     def nfreq(self):
