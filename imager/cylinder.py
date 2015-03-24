@@ -1,10 +1,11 @@
 
 import numpy as np
 
-from drift.core import telescope
-from drift.util import config
-from drift.util import typeutil
-from drift.telescope import cylbeam
+import telescope
+import cylbeam
+from util import typeutil
+
+from caput import config
 
 
 

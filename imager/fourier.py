@@ -2,12 +2,13 @@ import abc
 import numpy as np
 import healpy as hp
 
-from caput import config
-
 import telescope
 import cylinder
 import visibility
 
+from cora.util import coord
+
+from caput import config
 
 
 
@@ -75,6 +76,10 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
         shp = uv.shape
         uv = uv.reshape(-1, 2).T.reshape((2,) + shp[:-1])
         fringe = visibility.fringe(self._angpos, self.zenith, uv)
+
+        import h5py
+        with h5py.File('fringe_%d.hdf5' % f_index, 'w') as f:
+            f.create_dataset('map', data=fringe[0, 0])
 
         # Beam solid angle (integrate over beam^2 - equal area pixels)
         omega_A = (np.abs(beam)**2 * self._horizon).sum() * (4*np.pi / beam.size)
@@ -206,7 +211,29 @@ class FFTTelescope(FourierTransformTelescope):
         Shape (nbls_v, nbls_u).
 
         """
-        return hp.vec2pix(self._nside, self.q_grid[:, :, 0], self.q_grid[:, :, 1], self.k_z[ifreq])
+        # unit vectors in equatorial coordinate
+        zhat = coord.sph_to_cart(self.zenith)
+        uhat, vhat = visibility.uv_plane_cart(self.zenith)
+
+        # convert k-vectors in local coordinate to equatorial coordinate
+        kx = self.q_grid[:, :, 0] * uhat[0] + self.q_grid[:, :, 1] * uhat[1] + self.k_z(ifreq) * uhat[2]
+        ky = self.q_grid[:, :, 0] * vhat[0] + self.q_grid[:, :, 1] * vhat[1] + self.k_z(ifreq) * vhat[2]
+        kz = self.q_grid[:, :, 0] * zhat[0] + self.q_grid[:, :, 1] * zhat[1] + self.k_z(ifreq) * zhat[2]
+
+        return hp.vec2pix(self._nside, kx, ky, kz)
+
+        lat, lon = self.zenith
+        lat = np.pi / 2 - lat
+        kx = self.q_grid[:, :, 0]
+        ky = self.q_grid[:, :, 1]
+        kz = self.k_z(ifreq)
+        eqkx = -ky * np.sin(lat) + kz * np.cos(lat)
+        eqky = ky
+        eqkz = ky * np.cos(lat) + kz * np.sin(lat)
+
+        # eqkx, eqky, eqkz = hp.Rotator(rot=(-lon, 0.0, 0.0))(eqkx, eqky, eqkz)
+
+        # return hp.vec2pix(self._nside, eqkx, eqky, eqkz)
 
     @property
     def _single_feedpositions(self):
@@ -250,9 +277,9 @@ class UnpolarisedFFTTelescope(FFTTelescope, UnpolarisedFourierTransformTelescope
         omega_A = (np.abs(beam)**2 * self._horizon).sum() * (4*np.pi / beam.size)
 
         prod = self._horizon * np.abs(beam)**2 / omega_A
-        kk_z = self.k[ifreq] * self.k_z[ifreq]
+        kk_z = self.k[ifreq] * self.k_z(ifreq)
 
-        return prod[self.hp_pix] / kk_z
+        return prod[self.hp_pix(ifreq)] / kk_z
 
     def noise(self, f_index):
         """Noise temperature for all baselines for one frequency channel, Unit: K

@@ -1,12 +1,13 @@
 import abc
-
 import numpy as np
+
+import visibility
+from util import util
+from util import typeutil
 
 from cora.util import hputil, units
 
-from drift.core import visibility
-from drift.util import util, config
-from drift.util import typeutil
+from caput import config
 
 
 def in_range(arr, min, max):
@@ -117,6 +118,7 @@ def max_lm(baselines, wavelengths, uwidth, vwidth=0.0):
 
 def latlon_to_sphpol(latlon):
 
+    print 'latlon: ', latlon
     zenith = np.array([np.pi / 2.0 - np.radians(latlon[0]),
                        np.remainder(np.radians(latlon[1]), 2*np.pi)])
 
@@ -161,7 +163,8 @@ class TransitTelescope(config.Reader):
     """
     __metaclass__ = abc.ABCMeta  # Enforce Abstract class
 
-    zenith = config.Property(proptype=latlon_to_sphpol, default=[45.0, 0.0])
+    # zenith = config.Property(proptype=latlon_to_sphpol, default=[45.0, 0.0])
+    zenith = config.Property(proptype=latlon_to_sphpol, default=[45.0, 10.0])
 
     freq_lower = config.Property(proptype=typeutil.nonnegative_float, default=400.0)
     freq_upper = config.Property(proptype=typeutil.nonnegative_float, default=800.0)
@@ -179,17 +182,17 @@ class TransitTelescope(config.Reader):
     auto_correlations = config.Property(proptype=bool, default=False)
 
 
-    def __init__(self, latitude=45, longitude=0):
-        """Initialise a telescope object.
+    # def __init__(self, latitude=45, longitude=0):
+    #     """Initialise a telescope object.
 
-        Parameters
-        ----------
-        latitude, longitude : scalar
-            Position on the Earths surface of the telescope (in degrees).
-        """
+    #     Parameters
+    #     ----------
+    #     latitude, longitude : scalar
+    #         Position on the Earths surface of the telescope (in degrees).
+    #     """
 
-        # NOTE: latlon_to_sphpol is automatically applied on assignment
-        self.zenith = [latitude, longitude]
+    #     # NOTE: latlon_to_sphpol is automatically applied on assignment
+    #     self.zenith = [latitude, longitude]
 
 
 

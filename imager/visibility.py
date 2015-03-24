@@ -155,5 +155,11 @@ def fringe(sph_arr, zenith, baseline):
     # uv = baseline[0] * uhatc + baseline[1] * vhatc
     uv = (np.outer(baseline[0], uhatc) + np.outer(baseline[1], vhatc)).reshape(baseline[0].shape + uhatc.shape)
 
+    # uv = np.zeros((baseline.shape[:-1] + (3,)), dtype=baseline.dtype)
+    # uv[..., 0] = baseline[..., 0] * uhatc[0] + baseline[..., 1] * vhatc[0]
+    # uv[..., 1] = baseline[..., 0] * uhatc[1] + baseline[..., 1] * vhatc[1]
+    # uv[..., 2] = baseline[..., 0] * uhatc[2] + baseline[..., 1] * vhatc[2]
+
+
     # return np.exp(2j*np.pi* np.inner(coord.sph_to_cart(sph_arr), uv))
     return np.exp(2j*np.pi* np.inner(uv, coord.sph_to_cart(sph_arr)))
