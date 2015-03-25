@@ -187,8 +187,8 @@ class FFTTelescope(FourierTransformTelescope):
         with shape (nbls_v, nbls_u, 2).
 
         """
-        delta_kx = 2 * np.pi / ((self.nbls_u - 1) * self.delta_u)
-        delta_ky = 2 * np.pi / ((self.nbls_v - 1) * self.delta_v)
+        delta_kx = 2 * np.pi / (self.nbls_u * self.delta_u)
+        delta_ky = 2 * np.pi / (self.nbls_v * self.delta_v)
 
         q = [ np.array([ix * delta_kx, iy * delta_ky]) for iy in range(-(self.nfeeds_v - 1), self.nfeeds_v) for ix in range(-(self.nfeeds_u - 1), self.nfeeds_u) ]
         q = np.array(q).reshape((self.nbls_v, self.nbls_u, 2))
@@ -203,7 +203,8 @@ class FFTTelescope(FourierTransformTelescope):
         """
         q2 = self.q_grid[:, :, 0]**2 + self.q_grid[:, :, 1]**2
 
-        return np.sqrt(self.k[ifreq]**2 - q2)
+        # note the negative sign, as vec(k) is radiation travel direction
+        return -np.sqrt(self.k[ifreq]**2 - q2)
 
     def hp_pix(self, ifreq):
         """The corresponding healpix map pixel for vector k = (k_x, k_y, kz).
@@ -220,16 +221,18 @@ class FFTTelescope(FourierTransformTelescope):
         ky = self.q_grid[:, :, 0] * vhat[0] + self.q_grid[:, :, 1] * vhat[1] + self.k_z(ifreq) * vhat[2]
         kz = self.q_grid[:, :, 0] * zhat[0] + self.q_grid[:, :, 1] * zhat[1] + self.k_z(ifreq) * zhat[2]
 
-        return hp.vec2pix(self._nside, kx, ky, kz)
+        # return hp.vec2pix(self._nside, kx, ky, kz)
+        # note the direction of -vec(k) is vec(n)
+        return hp.vec2pix(self._nside, -kx, -ky, -kz)
 
-        lat, lon = self.zenith
-        lat = np.pi / 2 - lat
-        kx = self.q_grid[:, :, 0]
-        ky = self.q_grid[:, :, 1]
-        kz = self.k_z(ifreq)
-        eqkx = -ky * np.sin(lat) + kz * np.cos(lat)
-        eqky = ky
-        eqkz = ky * np.cos(lat) + kz * np.sin(lat)
+        # lat, lon = self.zenith
+        # lat = np.pi / 2 - lat
+        # kx = self.q_grid[:, :, 0]
+        # ky = self.q_grid[:, :, 1]
+        # kz = self.k_z(ifreq)
+        # eqkx = -ky * np.sin(lat) + kz * np.cos(lat)
+        # eqky = ky
+        # eqkz = ky * np.cos(lat) + kz * np.sin(lat)
 
         # eqkx, eqky, eqkz = hp.Rotator(rot=(-lon, 0.0, 0.0))(eqkx, eqky, eqkz)
 

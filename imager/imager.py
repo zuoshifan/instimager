@@ -135,7 +135,8 @@ class FFTMapMaking(TaskBase):
                 fi = f.attrs['f_index']
 
             fft_vis = np.fft.ifft2(vis).real # maybe * number of grid points?
-            fft_vis = np.fft.ifftshift(fft_vis)
+            # fft_vis = np.fft.ifftshift(fft_vis)
+            fft_vis = np.fft.fftshift(fft_vis)
 
             beam_prod = telescope.beam_prod(fi)
             T_grid = fft_vis / beam_prod
