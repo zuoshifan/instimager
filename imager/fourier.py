@@ -47,7 +47,9 @@ class FourierTransformTelescope(telescope.TransitTelescope):
 
     def _noise(self, baselines, f_index):
         ## Noise temperature for an array of baselines for one frequency channel, Unit: K
-        return self.noise_amp(f_index) * np.random.normal(size=baselines.shape[:-1])
+
+        # complex noise, maybe divide by sqrt(2) ???
+        return self.noise_amp(f_index) * (np.random.normal(size=baselines.shape[:-1]) + 1.0J * np.random.normal(size=baselines.shape[:-1]))
 
 
 
@@ -203,8 +205,7 @@ class FFTTelescope(FourierTransformTelescope):
         """
         q2 = self.q_grid[:, :, 0]**2 + self.q_grid[:, :, 1]**2
 
-        # note the negative sign, as vec(k) is radiation travel direction
-        return -np.sqrt(self.k[ifreq]**2 - q2)
+        return np.sqrt(self.k[ifreq]**2 - q2)
 
     def hp_pix(self, ifreq):
         """The corresponding healpix map pixel for vector k = (k_x, k_y, kz).
@@ -223,7 +224,7 @@ class FFTTelescope(FourierTransformTelescope):
 
         # return hp.vec2pix(self._nside, kx, ky, kz)
         # note the direction of -vec(k) is vec(n)
-        return hp.vec2pix(self._nside, -kx, -ky, -kz)
+        return hp.vec2pix(self._nside, -kx, -ky, kz)
 
         # lat, lon = self.zenith
         # lat = np.pi / 2 - lat

@@ -134,12 +134,19 @@ class FFTMapMaking(TaskBase):
                 vis = f['vis'][...]
                 fi = f.attrs['f_index']
 
+            fft_vis = np.fft.ifftshift(vis)
             fft_vis = np.fft.ifft2(vis).real # maybe * number of grid points?
             # fft_vis = np.fft.ifftshift(fft_vis)
-            fft_vis = np.fft.fftshift(fft_vis)
+            # fft_vis = np.fft.fftshift(fft_vis)
 
             beam_prod = telescope.beam_prod(fi)
-            T_grid = fft_vis / beam_prod
+            # T_grid = fft_vis / beam_prod
+            T_grid = np.ma.divide(fft_vis, beam_prod)
+
+            with h5py.File('beamprod_%d.hdf5' % fi, 'w') as f:
+                f.create_dataset('map', data=beam_prod)
+            with h5py.File('Tgrid_%d.hdf5' % fi, 'w') as f:
+                f.create_dataset('map', data=T_grid)
 
             # convert to healpix map
             T_map = np.zeros((telescope.num_pol_sky, 12 * telescope._nside**2), dtype=T_grid.dtype)
