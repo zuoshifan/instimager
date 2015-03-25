@@ -213,26 +213,12 @@ class FFTTelescope(FourierTransformTelescope):
         uhat, vhat = visibility.uv_plane_cart(self.zenith)
 
         # convert k-vectors in local coordinate to equatorial coordinate
-        kx = self.q_grid[:, :, 0] * uhat[0] + self.q_grid[:, :, 1] * uhat[1] + self.k_z(ifreq) * uhat[2]
-        ky = self.q_grid[:, :, 0] * vhat[0] + self.q_grid[:, :, 1] * vhat[1] + self.k_z(ifreq) * vhat[2]
-        kz = self.q_grid[:, :, 0] * zhat[0] + self.q_grid[:, :, 1] * zhat[1] + self.k_z(ifreq) * zhat[2]
+        kz = self.k_z(ifreq)
+        shp = self.q_grid.shape
+        q = self.q_grid.reshape(-1, 2).T.reshape(2, shp[:-1])
+        k = (np.outer(q[0], uhat) + np.outer(q[1], vhat) + np.outer(kz, zhat)).reshape(kz.shape + zhat.shape)
 
-        # return hp.vec2pix(self._nside, kx, ky, kz)
-        # note the direction of -vec(k) is vec(n)
-        return hp.vec2pix(self._nside, -kx, -ky, kz)
-
-        # lat, lon = self.zenith
-        # lat = np.pi / 2 - lat
-        # kx = self.q_grid[:, :, 0]
-        # ky = self.q_grid[:, :, 1]
-        # kz = self.k_z(ifreq)
-        # eqkx = -ky * np.sin(lat) + kz * np.cos(lat)
-        # eqky = ky
-        # eqkz = ky * np.cos(lat) + kz * np.sin(lat)
-
-        # eqkx, eqky, eqkz = hp.Rotator(rot=(-lon, 0.0, 0.0))(eqkx, eqky, eqkz)
-
-        # return hp.vec2pix(self._nside, eqkx, eqky, eqkz)
+        return hp.vec2pix(self._nside, k[..., 0], k[..., 1], k[..., 2])
 
     @property
     def _single_feedpositions(self):

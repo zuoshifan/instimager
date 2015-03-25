@@ -134,8 +134,9 @@ class FFTMapMaking(TaskBase):
                 vis = f['vis'][...]
                 fi = f.attrs['f_index']
 
+            # first arrange data according to fftfreq
             fft_vis = np.fft.ifftshift(vis)
-            fft_vis = np.fft.ifft2(vis).real # maybe * number of grid points?
+            fft_vis = np.prod(vis.shape) * np.fft.ifft2(vis).real
             # fft_vis = np.fft.ifftshift(fft_vis)
             # fft_vis = np.fft.fftshift(fft_vis)
 
