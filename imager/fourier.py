@@ -27,11 +27,6 @@ class FourierTransformTelescope(telescope.TransitTelescope):
         """The central wavevector magnitude of each frequency band (in metres^-1)."""
         return 2 * np.pi / self.wavelengths
 
-    # @abc.abstractproperty
-    # def t(self):
-    #     """Integrating time, Unit: s."""
-    #     return
-
     @abc.abstractproperty
     def Aeff(self):
         """Effective collecting area of each element, Unit: m^2."""
