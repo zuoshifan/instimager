@@ -14,5 +14,5 @@ setup(
     author_email = "sfzuo@bao.ac.cn",
     description = "Instantaneous imager for FFT telescope.",
     license = "GPL v3.0",
-    url = "http://github.com/zuoshifna/instimager"
+    url = "https://github.com/zuoshifan/instimager"
 )
