@@ -32,6 +32,62 @@ class FourierTransformTelescope(telescope.TransitTelescope):
         """Effective collecting area of each element, Unit: m^2."""
         return
 
+    @abc.abstractmethod
+    def single_beam(self, f_index):
+        """Primary beam response of the telescope.
+
+        A healpix mapfor an unpolarised telescope, a (2, 2) healpix map matrix
+        for a polarised telescope."""
+        return
+
+    @abc.abstractmethod
+    def beam_solid_angle(self, f_index):
+        """Solid angle of the primary beam."""
+        beam = self.single_beam(f_index)
+        return (np.abs(beam)**2 * self._horizon).sum() * (4*np.pi / beam.size)
+
+    def fringe(self, baselines, f_index):
+        """The exponential fringes of some baselines."""
+
+        # Get baseline separation and fringe map.
+        uv = baselines / self.wavelengths[f_index]
+        shp = uv.shape
+        uv = uv.reshape(-1, 2).T.reshape((2,) + shp[:-1])
+        return visibility.fringe(self._angpos, self.zenith, uv)
+
+    @abc.abstractmethod
+    @staticmethod
+    def prod(x1, x2):
+        """Return the product of `x1` and `x2`."""
+        return x1 * x2
+
+    @abc.abstractmethod
+    @staticmethod
+    def hconj(x):
+        """Return the Hermitian conjugate of `x`."""
+        return np.conj(x)
+
+    def vis(self, sky_map, baselines, f_index, add_noise=True):
+        """The observed visibilities of some baselines given a sky map `sky_map`."""
+        beam = self.single_beam(f_index)
+        BSBdagger = self.prod(self.prod(beam, sky_map), self.hconj(beam))
+        fringe = self.fringe(baselines, f_index)
+        beam_ang = self.beam_solid_angle(f_index)
+
+        vis = (BSBdagger * fringe / beam_ang).sum(axis=-1) * (4 * pi / sky_map.shape[-1])
+        if add_noise:
+            vis += self._noise(baselines, f_index)
+
+        return vis
+
+    @abc.abstractmethod
+    @staticmethod
+    def fourier_transform(x):
+        """Fourier transform `x`."""
+        return
+
+
+
     def noise_amp(self, f_index):
         """Noise temperature amplitude for one frequency channel, Unit: K.
 
@@ -40,11 +96,21 @@ class FourierTransformTelescope(telescope.TransitTelescope):
         band_width = self.freq_upper - self.freq_lower # MHz
         return self.wavelengths[f_index]**2 *self.tsys(f_index) / (self.Aeff * np.sqrt(1.0e6 * band_width * self.t_int))
 
-    def _noise(self, baselines, f_index):
-        ## Noise temperature for an array of baselines for one frequency channel, Unit: K
+    # def _noise(self, baselines, f_index):
+    #     ## Noise temperature for an array of baselines for one frequency channel, Unit: K
 
-        # complex noise, maybe divide by sqrt(2) ???
-        return self.noise_amp(f_index) * (np.random.normal(size=baselines.shape[:-1]) + 1.0J * np.random.normal(size=baselines.shape[:-1]))
+    #     # complex noise, maybe divide by sqrt(2) ???
+    #     return self.noise_amp(f_index) * (np.random.normal(size=baselines.shape[:-1]) + 1.0J * np.random.normal(size=baselines.shape[:-1]))
+
+    @abc.abstractmethod
+    def _noise(self, baselines, f_index):
+        ## Noise temperature for some baselines for one frequency channel, Unit: K
+        return
+
+    @abc.abstractmethod
+    def noise(self, f_index):
+        """Noise temperature for one frequency channel, Unit: K."""
+        return
 
 
 
@@ -62,42 +128,50 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
         Routines giving the field pattern for the feeds.
     """
 
-    def _beam_map(self, baselines, f_index):
-        """Return a heapix map of |A(n)|^2 * e^(2 * pi * i * n * u_ij) / Omega
-        for an array of baseline `baselines` in one frequency channel.
+    def single_beam(self, f_index):
+        """A healpix map of the primary beam."""
+        return self.beam(0, f_index) # all feeds are the same
 
-        """
-        beam = self.beam(0, f_index) # all feeds are the same
-        # Get baseline separation and fringe map.
-        uv = baselines / self.wavelengths[f_index]
-        shp = uv.shape
-        uv = uv.reshape(-1, 2).T.reshape((2,) + shp[:-1])
-        fringe = visibility.fringe(self._angpos, self.zenith, uv)
+    # def _beam_map(self, baselines, f_index):
+    #     """Return a heapix map of |A(n)|^2 * e^(2 * pi * i * n * u_ij) / Omega
+    #     for an array of baseline `baselines` in one frequency channel.
 
-        import h5py
-        with h5py.File('fringe_%d.hdf5' % f_index, 'w') as f:
-            f.create_dataset('map', data=fringe[0, 0])
+    #     """
+    #     beam = self.beam(0, f_index) # all feeds are the same
+    #     # Get baseline separation and fringe map.
+    #     uv = baselines / self.wavelengths[f_index]
+    #     shp = uv.shape
+    #     uv = uv.reshape(-1, 2).T.reshape((2,) + shp[:-1])
+    #     fringe = visibility.fringe(self._angpos, self.zenith, uv)
 
-        # Beam solid angle (integrate over beam^2 - equal area pixels)
-        omega_A = (np.abs(beam)**2 * self._horizon).sum() * (4*np.pi / beam.size)
+    #     import h5py
+    #     with h5py.File('fringe_%d.hdf5' % f_index, 'w') as f:
+    #         f.create_dataset('map', data=fringe[0, 0])
 
-        return self._horizon * fringe * np.abs(beam)**2 / omega_A
+    #     # Beam solid angle (integrate over beam^2 - equal area pixels)
+    #     omega_A = (np.abs(beam)**2 * self._horizon).sum() * (4*np.pi / beam.size)
 
-    def beam_map(self, f_index):
-        """Return a heapix map of |A(n)|^2 * e^(2 * pi * i * n * u_ij) / Omega
-        for all baselines in one frequency channel.
+    #     return self._horizon * fringe * np.abs(beam)**2 / omega_A
 
-        Shape (n_bl, n_pix).
+    # def beam_map(self, f_index):
+    #     """Return a heapix map of |A(n)|^2 * e^(2 * pi * i * n * u_ij) / Omega
+    #     for all baselines in one frequency channel.
 
-        """
-        return self._beam_map(self.baselines, f_index)
+    #     Shape (n_bl, n_pix).
+
+    #     """
+    #     return self._beam_map(self.baselines, f_index)
+
+    def _noise(self, baselines, f_index):
+        ## Noise temperature for some baselines for one frequency channel, Unit: K
+        shp = baseline.shape[:-1]
+        cnormal = np.random.normal(size=shp) + 1.0J * np.random.normal(size=shp)
+        return self.noise_amp(f_index) * cnormal
 
     def noise(self, f_index):
         """Noise temperature for all baselines for one frequency channel, Unit: K
         """
-        return self._noise(self.baselines, f_index)
-
-
+        return self._noise(self.baseline, f_index)
 
 
 
@@ -242,29 +316,29 @@ class UnpolarisedFFTTelescope(FFTTelescope, UnpolarisedFourierTransformTelescope
 
     """
 
-    def beam_map(self, f_index):
-        """Return a heapix map of |A(n)|^2 * e^(2 * pi * i * n * u_ij) / Omega
-        for all baselines in one frequency channel.
+    # def beam_map(self, f_index):
+    #     """Return a heapix map of |A(n)|^2 * e^(2 * pi * i * n * u_ij) / Omega
+    #     for all baselines in one frequency channel.
 
-        Shape (nbls_v, nbls_u, n_pix).
+    #     Shape (nbls_v, nbls_u, n_pix).
 
-        """
-        return self._beam_map(self.bl_grid, f_index)
+    #     """
+    #     return self._beam_map(self.bl_grid, f_index)
 
-    def beam_prod(self, ifreq):
-        """Return |A(q)|^2 / (Omega * k * sqrt(k^2 - q^2)) in the q_grid.
+    # def beam_prod(self, ifreq):
+    #     """Return |A(q)|^2 / (Omega * k * sqrt(k^2 - q^2)) in the q_grid.
 
-        Shape (nbls_v, nbls_u).
+    #     Shape (nbls_v, nbls_u).
 
-        """
-        beam = self.beam(0, ifreq) # all feeds are the same
-        # Beam solid angle (integrate over beam^2 - equal area pixels)
-        omega_A = (np.abs(beam)**2 * self._horizon).sum() * (4*np.pi / beam.size)
+    #     """
+    #     beam = self.beam(0, ifreq) # all feeds are the same
+    #     # Beam solid angle (integrate over beam^2 - equal area pixels)
+    #     omega_A = (np.abs(beam)**2 * self._horizon).sum() * (4*np.pi / beam.size)
 
-        prod = self._horizon * np.abs(beam)**2 / omega_A
-        kk_z = self.k[ifreq] * self.k_z(ifreq)
+    #     prod = self._horizon * np.abs(beam)**2 / omega_A
+    #     kk_z = self.k[ifreq] * self.k_z(ifreq)
 
-        return prod[self.hp_pix(ifreq)] / kk_z
+    #     return prod[self.hp_pix(ifreq)] / kk_z
 
     def noise(self, f_index):
         """Noise temperature for all baselines for one frequency channel, Unit: K

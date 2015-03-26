@@ -118,7 +118,6 @@ def max_lm(baselines, wavelengths, uwidth, vwidth=0.0):
 
 def latlon_to_sphpol(latlon):
 
-    print 'latlon: ', latlon
     zenith = np.array([np.pi / 2.0 - np.radians(latlon[0]),
                        np.remainder(np.radians(latlon[1]), 2*np.pi)])
 
