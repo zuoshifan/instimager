@@ -63,6 +63,12 @@ class FourierTransformTelescope(telescope.TransitTelescope):
 
     @abc.abstractmethod
     @staticmethod
+    def inv(x):
+        """Return the inverse of `x`."""
+        return 1.0 / x
+
+    @abc.abstractmethod
+    @staticmethod
     def hconj(x):
         """Return the Hermitian conjugate of `x`."""
         return np.conj(x)
@@ -81,11 +87,46 @@ class FourierTransformTelescope(telescope.TransitTelescope):
         return vis
 
     @abc.abstractmethod
-    @staticmethod
-    def fourier_transform(x):
-        """Fourier transform `x`."""
+    def qvector(self, f_index):
+        """The q vector for Fourier transform map-making. vec(q) = (k_x, k_y)."""
         return
 
+    def k_z(self, f_index):
+        """The magnitude of k_z for corresponding qvector. k_z = sqrt(k^2 - q^2)."""
+        q = self.qvector(f_index)
+        q2 = q[0]**2 + q[1]**2
+
+        return np.sqrt(self.k(f_index)**2 - q2)
+
+    def hp_pix(self, ifreq):
+        """The corresponding healpix map pixel for vector k = (k_x, k_y, kz).
+        """
+        # unit vectors in equatorial coordinate
+        zhat = coord.sph_to_cart(self.zenith)
+        uhat, vhat = visibility.uv_plane_cart(self.zenith)
+
+        # convert k-vectors in local coordinate to equatorial coordinate
+        q = self.qvector(f_index)
+        kz = self.k_z(ifreq)
+        shp = q.shape
+        q = q.reshape(-1, 2).T.reshape(2, shp[:-1])
+        k = (np.outer(q[0], uhat) + np.outer(q[1], vhat) + np.outer(kz, zhat)).reshape(kz.shape + zhat.shape)
+
+        return hp.vec2pix(self._nside, k[..., 0], k[..., 1], k[..., 2])
+
+    @abc.abstractmethod
+    @staticmethod
+    def fourier_transform(vis):
+        """Fourier transform `vis` at an array of q-vectors."""
+        return
+
+    def map_making(self, vis, f_index):
+        """Map-making via Fourier transforming the visibilities."""
+        SBq = self.fourier_transform(vis, qvector=qvector)
+        kkz = self.k(f_index) * self.k_z(f_index)
+        invB = self.inv(self.single_beam(f_index))
+
+        Sq = kkz * self.prod(self.prod(self.hconj(invB), SBq), invB)
 
 
     def noise_amp(self, f_index):
