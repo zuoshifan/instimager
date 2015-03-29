@@ -17,7 +17,6 @@ sidereal_day = 23.9344696 * 60 * 60 # Unit: s
 
 
 class InitUnpolCylinderFFTTelescope(fourier.UnpolarisedCylinderFFTTelescope, TaskBase):
-# class InitUnpolCylinderFFTTelescope(TaskBase, fourier.UnpolarisedCylinderFFTTelescope):
     """Initialize an unpolarised cylinder type FFT telescope by reading parameters
     from a YAML configuration file.
 
@@ -52,66 +51,28 @@ class GenerateVisibility(TaskBase):
 
     def next(self, telescope):
         nfreq = telescope.nfreq
-        npol = telescope.num_pol_sky
+        # npol = telescope.num_pol_sky
 
+        # Load the input maps
+        telescope.load_skymap(self.maps)
+
+        # rotate the sky map
         # the earth rotation angle, equivalently the sky rotates a negative rot_ang
         rot_ang = 360.0 * self.t_obs / sidereal_day # degree
-        telescope.rot_ang = rot_ang # record rotation angle so can pass to next task
+        telescope.rotate_skymap(-rot_ang)
 
-        lfreq, sfreq, efreq = mpiutil.split_local(nfreq)
-        local_freq = range(sfreq, efreq)
+        # Pack the skymap to appropriate format.
+        telescope.pack_skymap()
 
-        # read in sky maps
-        if len(self.maps) > 0:
-
-            # Load file to find out the map shapes.
-            with h5py.File(self.maps[0], 'r') as f:
-                mapshape = f['map'].shape
-
-            if lfreq > 0:
-
-                # Allocate array to store the local frequencies
-                hpmap = np.zeros((lfreq, npol) + mapshape[2:], dtype=np.float64)
-
-                # Read in and sum up the local frequencies of the supplied maps.
-                for mapfile in self.maps:
-                    with h5py.File(mapfile, 'r') as f:
-                        hpmap += f['map'][sfreq:efreq, :npol]
-
-        else:
-            raise ValueError('No input sky map')
-
-        # initialize angular positions in healpix map
-        nside = hp.npix2nside(hpmap.shape[-1])
-        telescope._init_trans(nside)
-        # rotate the sky map
-        hpmap = rot.rotate_map(hpmap, rot=(-rot_ang, 0.0, 0.0))
-
-        # calculate the visibilities
+        # generate visibilities
         for fi in range(nfreq):
-            bfi = telescope.beam_map(fi)
-
-            print 'bfi.shape: ', bfi.shape
-            print 'zenith: ', telescope.zenith
-            with h5py.File('bfi_%d.hdf5' % fi, 'w') as f:
-                f.create_dataset('map', data=bfi[0, 0])
-
-            vis = np.zeros((npol,) + bfi.shape[:-1], dtype=np.complex128)
-            for pi in range(npol):
-
-                with h5py.File('bfihp_%d_%d.hdf5' % (fi, pi), 'w') as f:
-                    print 'shape: ', (bfi * hpmap[fi, pi]).shape
-                    f.create_dataset('map', data = (bfi * hpmap[fi, pi])[0, 0])
-
-                vis[pi] = (bfi * hpmap[fi, pi]).sum(axis=-1) * (4 * np.pi / hpmap.shape[-1])
-
-            if self.add_noise:
-                vis += telescope.noise(fi)
+            vis = telescope.gen_visibily(fi, add_noise=self.add_noise)
 
             with h5py.File('visibilities_%d.hdf5' % fi, 'w') as f:
                 f.create_dataset('vis', data=vis)
                 f.attrs['add_noise'] = self.add_noise
                 f.attrs['f_index'] = fi
+                f.attrs['t_obs'] = self.t_obs
 
         return telescope
 
@@ -130,32 +91,34 @@ class FFTMapMaking(TaskBase):
 
     def next(self, telescope):
         for vis_file in self.vis_files:
-            with h5py.File(vis_file, 'r') as f:
-                vis = f['vis'][...]
-                fi = f.attrs['f_index']
+            # with h5py.File(vis_file, 'r') as f:
+            #     vis = f['vis'][...]
+            #     fi = f.attrs['f_index']
 
-            # first arrange data according to fftfreq
-            fft_vis = np.fft.ifftshift(vis)
-            fft_vis = np.prod(vis.shape) * np.fft.ifft2(vis).real
-            # fft_vis = np.fft.ifftshift(fft_vis)
-            # fft_vis = np.fft.fftshift(fft_vis)
+            # # first arrange data according to fftfreq
+            # fft_vis = np.fft.ifftshift(vis)
+            # fft_vis = np.prod(vis.shape) * np.fft.ifft2(vis).real
+            # # fft_vis = np.fft.ifftshift(fft_vis)
+            # # fft_vis = np.fft.fftshift(fft_vis)
 
-            beam_prod = telescope.beam_prod(fi)
-            # T_grid = fft_vis / beam_prod
-            T_grid = np.ma.divide(fft_vis, beam_prod)
+            # beam_prod = telescope.beam_prod(fi)
+            # # T_grid = fft_vis / beam_prod
+            # T_grid = np.ma.divide(fft_vis, beam_prod)
 
-            with h5py.File('beamprod_%d.hdf5' % fi, 'w') as f:
-                f.create_dataset('map', data=beam_prod)
-            with h5py.File('Tgrid_%d.hdf5' % fi, 'w') as f:
-                f.create_dataset('map', data=T_grid)
+            # with h5py.File('beamprod_%d.hdf5' % fi, 'w') as f:
+            #     f.create_dataset('map', data=beam_prod)
+            # with h5py.File('Tgrid_%d.hdf5' % fi, 'w') as f:
+            #     f.create_dataset('map', data=T_grid)
 
-            # convert to healpix map
-            T_map = np.zeros((telescope.num_pol_sky, 12 * telescope._nside**2), dtype=T_grid.dtype)
-            # T_map[..., telescope.hp_pix(fi)] = T_grid.flatten()
-            T_map[..., telescope.hp_pix(fi)] = T_grid
+            # # convert to healpix map
+            # T_map = np.zeros((telescope.num_pol_sky, 12 * telescope._nside**2), dtype=T_grid.dtype)
+            # # T_map[..., telescope.hp_pix(fi)] = T_grid.flatten()
+            # T_map[..., telescope.hp_pix(fi)] = T_grid
 
-            # inversely rotate the sky map
-            T_map = rot.rotate_map(T_map, rot=(telescope.rot_ang, 0.0, 0.0))
+            # # inversely rotate the sky map
+            # T_map = rot.rotate_map(T_map, rot=(telescope.rot_ang, 0.0, 0.0))
+
+            T_map = telescope.map_making(vis_file)
 
             with h5py.File('map_%d.hdf5' % fi, 'w') as f:
                 f.create_dataset('map', data=T_map)

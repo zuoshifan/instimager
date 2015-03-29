@@ -1,6 +1,7 @@
 import abc
 import numpy as np
 import healpy as hp
+import h5py
 
 from cora.util import coord
 
@@ -109,12 +110,12 @@ class FourierTransformTelescope(telescope.TransitTelescope):
     def _read_in_data_from_h5files(files):
         ## Read in data contained in HDF5 files.
         files = list(files)
-        if len(file) == 0:
+        if len(files) == 0:
             raise ValueError('No input files')
         # read meta data from the first file
         data = None
         for fl in files:
-            with h5py.File(files, 'r') as f:
+            with h5py.File(fl, 'r') as f:
                 if data is None:
                     data = f['map'][...]
                 else:
@@ -128,7 +129,7 @@ class FourierTransformTelescope(telescope.TransitTelescope):
         """Load sky map from a list of files. If no input map files, a zero
         Healpix map with NSIDE=`nside` will be generated."""
         try:
-            hpmap = self._read_in_data_from_h5files(files)
+            hpmap = self._read_in_data_from_h5files(mapfiles)
         except ValueError:
             warnings.warn('No input sky maps, return a zeros sky map instead')
             # initialize angular positions in healpix map
@@ -151,7 +152,7 @@ class FourierTransformTelescope(telescope.TransitTelescope):
 
     _rotate_angle = 0
 
-    def rotate_skymap(angle=0):
+    def rotate_skymap(self, angle=0):
         """Rotate the sky map along the longitudial direction by `angle` degree."""
         self._rotate_angle = angle
         return rot.rotate_map(self._original_map, rot=(angle, 0.0, 0.0))
@@ -181,9 +182,9 @@ class FourierTransformTelescope(telescope.TransitTelescope):
         q = self.qvector(f_index)
         q2 = q[0]**2 + q[1]**2
 
-        return np.sqrt(self.k(f_index)**2 - q2)
+        return np.sqrt(self.k[f_index]**2 - q2)
 
-    def hp_pix(self, ifreq):
+    def hp_pix(self, f_index):
         """The corresponding healpix map pixel for vector k = (k_x, k_y, kz).
         """
         # unit vectors in equatorial coordinate
@@ -192,7 +193,7 @@ class FourierTransformTelescope(telescope.TransitTelescope):
 
         # convert k-vectors in local coordinate to equatorial coordinate
         q = self.qvector(f_index)
-        kz = self.k_z(ifreq)
+        kz = self.k_z(f_index)
         shp = q.shape
         q = q.reshape(-1, 2).T.reshape(2, shp[:-1])
         k = (np.outer(q[0], uhat) + np.outer(q[1], vhat) + np.outer(kz, zhat)).reshape(kz.shape + zhat.shape)
@@ -254,6 +255,7 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
         Routines giving the field pattern for the feeds.
     """
 
+    @property
     def blvector(self):
         """Baselines vector of the array."""
         return self.baselines
@@ -274,10 +276,10 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
         """
         beam = self.single_beam(f_index) # all feeds are the same
         # Get baseline separation and fringe map.
-        uv = baselines / self.wavelengths[f_index]
-        shp = uv.shape
-        uv = uv.reshape(-1, 2).T.reshape((2,) + shp[:-1])
-        fringe = self.fringe(uv, f_index)
+        # uv = baselines / self.wavelengths[f_index]
+        # shp = uv.shape
+        # uv = uv.reshape(-1, 2).T.reshape((2,) + shp[:-1])
+        fringe = self.fringe(baselines, f_index)
 
         # Beam solid angle (integrate over beam^2 - equal area pixels)
         omega_A = self.beam_solid_angle(f_index)
@@ -330,7 +332,7 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
     def gen_visibily(self, fi_index, add_noise=True):
         """Generate simulated visibilities at one frequency for an input sky map."""
         bfi = self.beam_map(fi_index)
-        vis = (bfi * self.sky_map[fi_index]).sum(axis=-1) * (4 * np.pi / hpmap.shape[-1])
+        vis = (bfi * self.skymap[fi_index]).sum(axis=-1) * (4 * np.pi / self.skymap.shape[-1])
 
         if add_noise:
             vis += telescope.noise(fi)
@@ -430,6 +432,13 @@ class FFTTelescope(FourierTransformTelescope):
         q = np.array(q).reshape((self.nbls_v, self.nbls_u, 2))
 
         return q
+
+    @property
+    def blvector(self):
+        return self.bl_grid
+
+    def qvector(self, f_index):
+        return self.q_grid
 
     # def k_z(self, ifreq):
     #     """The magnitude of k_z for frequency channel `ifreq`. k_z = sqrt(k^2 - q^2).
@@ -589,12 +598,12 @@ class UnpolarisedCylinderFFTTelescope(CylinderFFTTelescope, cylinder.Unpolarised
         # fft_vis = np.fft.ifftshift(fft_vis)
         # fft_vis = np.fft.fftshift(fft_vis)
 
-        beam_prod = telescope.beam_prod(fi)
+        beam_prod = self.beam_prod(fi)
         # T_grid = fft_vis / beam_prod
         T_grid = np.ma.divide(fft_vis, beam_prod)
 
         # convert to healpix map
-        T_map = np.zeros((telescope.num_pol_sky, 12 * telescope._nside**2), dtype=T_grid.dtype)
+        T_map = np.zeros((1, 12 * telescope._nside**2), dtype=T_grid.dtype)
         # T_map[..., telescope.hp_pix(fi)] = T_grid.flatten()
         T_map[..., telescope.hp_pix(fi)] = T_grid
 
