@@ -77,7 +77,7 @@ class FourierTransformTelescope(telescope.TransitTelescope):
 
     def load_skymap(self, mapfiles, nside=64):
         """Load sky map from a list of files. If no input map files, a zero
-        Healpix map with NSIDE=`nside` will be generated."""
+        Healpix map with NSIDE=`nside` will be created."""
         try:
             hpmap = self._read_in_data_from_h5files(mapfiles)
         except ValueError:
@@ -102,9 +102,9 @@ class FourierTransformTelescope(telescope.TransitTelescope):
     _rotate_angle = 0
 
     def rotate_skymap(self, angle=0):
-        """Rotate the sky map along the longitudial direction by `angle` degree."""
+        """Rotate the sky map along the longitudinal direction by `angle` degree."""
         self._rotate_angle = angle
-        return rot.rotate_map(self._original_map, rot=(angle, 0.0, 0.0))
+        self._skymap = rot.rotate_map(self._original_map, rot=(angle, 0.0, 0.0))
 
     @abc.abstractmethod
     def pack_skymap(self):
@@ -112,7 +112,7 @@ class FourierTransformTelescope(telescope.TransitTelescope):
         return
 
     @abc.abstractmethod
-    def gen_visibily_fi(self, fi_index, add_noise=True):
+    def gen_visibily_fi(self, f_index, add_noise=True):
         """Generate simulated visibilities at one frequency for an input sky map."""
         return
 
@@ -156,7 +156,7 @@ class FourierTransformTelescope(telescope.TransitTelescope):
         return np.sqrt(self.k[f_index]**2 - q2)
 
     def hp_pix(self, f_index):
-        """The corresponding healpix map pixel for vector k = (k_x, k_y, kz).
+        """The corresponding healpix map pixel for vector k = (k_x, k_y, k_z).
         """
         # unit vectors in equatorial coordinate
         zhat = coord.sph_to_cart(self.zenith)
@@ -220,10 +220,10 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
         self._skymap = self._original_map[:, 0, :]
 
 
-    def gen_visibily_fi(self, fi_index, add_noise=True):
+    def gen_visibily_fi(self, f_index, add_noise=True):
         """Generate simulated visibilities at one frequency for an input sky map."""
-        bfi = self.beam_map(fi_index)
-        vis = (bfi * self.skymap[fi_index]).sum(axis=-1) * (4 * np.pi / self.skymap.shape[-1])
+        bfi = self.beam_map(f_index)
+        vis = (bfi * self.skymap[f_index]).sum(axis=-1) * (4 * np.pi / self.skymap.shape[-1])
 
         if add_noise:
             vis += telescope.noise(fi)
@@ -240,10 +240,9 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
         return (np.abs(beam)**2 * self._horizon).sum() * (4*np.pi / beam.size)
 
     def _beam_map(self, baselines, f_index):
-        """Return a heapix map of |A(n)|^2 * e^(2 * pi * i * n * u_ij) / Omega
-        for an array of baseline `baselines` in one frequency channel.
+        ## Return a heapix map of |A(n)|^2 * e^(2 * pi * i * n * u_ij) / Omega
+        ## for an array of baseline `baselines` in one frequency channel.
 
-        """
         beam = self.single_beam(f_index) # all feeds are the same
         fringe = self._fringe(baselines, f_index)
 
@@ -282,7 +281,7 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
         ## Noise temperature for some baselines for one frequency channel, Unit: K
         shp = baseline.shape[:-1]
         cnormal = np.random.normal(size=shp) + 1.0J * np.random.normal(size=shp)
-        return self._noise_amp(f_index) * cnormal
+        return self._noise_amp(f_index) * cnormal # maybe divide sqrt(2)
 
     def noise(self, f_index):
         """Noise temperature for all baselines for one frequency channel, Unit: K
@@ -410,11 +409,7 @@ class UnpolarisedFFTTelescope(FFTTelescope, UnpolarisedFourierTransformTelescope
 
     """
 
-    def noise(self, f_index):
-        """Noise temperature for all baselines for one frequency channel, Unit: K
-        """
-        return self._noise(self.bl_grid, f_index)
-
+    pass
 
 
 
@@ -483,7 +478,7 @@ class UnpolarisedCylinderFFTTelescope(CylinderFFTTelescope, cylinder.Unpolarised
         """Map-making for one frequency for the input visibilities."""
 
         # first arrange data according to fftfreq
-        fft_vis = np.fft.ifftshift(vis_fi)
+        vis_fi = np.fft.ifftshift(vis_fi)
         fft_vis = np.prod(vis_fi.shape) * np.fft.ifft2(vis_fi).real
         # fft_vis = np.fft.ifftshift(fft_vis)
         # fft_vis = np.fft.fftshift(fft_vis)
