@@ -16,6 +16,27 @@ from caput.pipeline import PipelineStopIteration
 sidereal_day = 23.9344696 * 60 * 60 # Unit: s
 
 
+class InitUnpolarisedCylinderFourierTransformTelescope(fourier.UnpolarisedCylinderFourierTransformTelescope, TaskBase):
+    """Initialize an unpolarised cylinder type FFT telescope by reading parameters
+    from a YAML configuration file.
+
+    """
+
+    def setup(self):
+        self.i = 0
+        print 'Initialize an unpolarised cylinder type FFT telescope.'
+
+    def next(self):
+        if self.i > 0:
+            raise PipelineStopIteration()
+        self.i += 1
+        return self # return a initialized instance
+
+    def finish(self):
+        print 'Initialization done.'
+
+
+
 class InitUnpolCylinderFFTTelescope(fourier.UnpolarisedCylinderFFTTelescope, TaskBase):
     """Initialize an unpolarised cylinder type FFT telescope by reading parameters
     from a YAML configuration file.

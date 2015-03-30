@@ -9,6 +9,7 @@ from caput import config
 
 import telescope
 import cylinder
+import exotic_cylinder
 import visibility
 import rotate as rot
 
@@ -151,7 +152,7 @@ class FourierTransformTelescope(telescope.TransitTelescope):
     def k_z(self, f_index):
         """The magnitude of k_z for corresponding qvector. k_z = sqrt(k^2 - q^2)."""
         q = self.qvector(f_index)
-        q2 = q[:, :, 0]**2 + q[:, :, 1]**2
+        q2 = q[..., 0]**2 + q[..., 1]**2
 
         return np.sqrt(self.k[f_index]**2 - q2)
 
@@ -260,6 +261,28 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
         """
         return self._beam_map(self.blvector, f_index)
 
+    ################### For map-making ########################
+
+    _threshould = 0.1
+
+    def qvector(self, f_index):
+        """The q vector for Fourier transform map-making. vec(q) = (k_x, k_y)."""
+        beam = self.single_beam(f_index)
+        # select index where beam response larger than the given threshould
+        (idx,) = np.where(beam > self._threshould)
+        nvec = hp.pix2vec(self._nside, idx)
+
+        # unit vectors in equatorial coordinate
+        # zhat = coord.sph_to_cart(self.zenith)
+        uhat, vhat = visibility.uv_plane_cart(self.zenith)
+        qxhat = nvec[0] * uhat[0] + nvec[1] * uhat[1] + nvec[2] * uhat[2]
+        qyhat = nvec[0] * vhat[0] + nvec[1] * vhat[1] + nvec[2] * vhat[2]
+        q = np.zeros(qxhat.shape + (2,), dtype=qxhat.dtype)
+        q[..., 0] = self.k[f_index] * qxhat
+        q[..., 1] = self.k[f_index] * qyhat
+
+        return q
+
     def beam_prod(self, f_index):
         """Return |A(q)|^2 / (Omega * k * sqrt(k^2 - q^2)) in the q_grid.
 
@@ -274,6 +297,31 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
         kk_z = self.k[f_index] * self.k_z(f_index)
 
         return prod[self.hp_pix(f_index)] / kk_z
+
+    def map_making_fi(self, vis_fi, f_index, rot_ang=0):
+        """Map-making for one frequency for the input visibilities."""
+
+        qvector = self.qvector(f_index)
+        ft_vis = np.zeros(qvector.shape[0], dtype=np.complex128)
+        for (qi, q) in enumerate(qvector):
+            for (bi, bl) in enumerate(self.blvector):
+                ft_vis[qi] += vis_fi[bi] * np.exp(1.0J * (q[0] * bl[0] + q[1] * bl[1]))
+
+        ft_vis /= self.blvector.shape[0]
+        ft_vis = ft_vis.real # only the real part
+
+        beam_prod = self.beam_prod(f_index)
+        T = np.ma.divide(ft_vis, beam_prod)
+
+        # convert to healpix map
+        T_map = np.zeros((4, 12 * self._nside**2), dtype=T.dtype)
+        T_map[0, self.hp_pix(f_index)] = T # only T
+
+        # inversely rotate the sky map
+        T_map = rot.rotate_map(T_map, rot=(rot_ang, 0.0, 0.0))
+
+        return T_map
+
 
     ###################### Noise related ######################
 
@@ -304,6 +352,20 @@ class PolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.Si
     """
 
     pass
+
+
+
+
+# class UnpolarisedCylinderFourierTransformTelescope(UnpolarisedFourierTransformTelescope, exotic_cylinder.ArbitraryPolarisedCylinder):
+class UnpolarisedCylinderFourierTransformTelescope(exotic_cylinder.ArbitraryUnpolarisedCylinder, UnpolarisedFourierTransformTelescope):
+    """A complete class for an Unpolarised Cylinder type Fourier Transform telescope.
+    """
+
+    def Aeff(self):
+        """Effective collecting area of each element, Unit: m^2."""
+        average_fd_spacing = np.dot(self.num_feeds, self.feed_spacing) / np.sum(self.num_feeds)
+
+        return self.cylinder_width * average_fd_spacing
 
 
 
