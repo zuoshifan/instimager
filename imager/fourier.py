@@ -23,6 +23,10 @@ class FourierTransformTelescope(telescope.TransitTelescope):
 
     t_int = config.Property(proptype=float, default=300.0) # integrating time, Unit:s
 
+    @abc.abstractproperty
+    def blvector(self):
+        """Baselines vector of the array."""
+        return self.baselines
 
     @property
     def k(self):
@@ -34,22 +38,10 @@ class FourierTransformTelescope(telescope.TransitTelescope):
         """Effective collecting area of each element, Unit: m^2."""
         return
 
-    # @abc.abstractmethod
-    # def single_beam(self, f_index):
-    #     """Primary beam response of the telescope.
+    ################# For generating visibilities ##############
 
-    #     A healpix mapfor an unpolarised telescope, a (2, 2) healpix map matrix
-    #     for a polarised telescope."""
-    #     return
-
-    # @abc.abstractmethod
-    # def beam_solid_angle(self, f_index):
-    #     """Solid angle of the primary beam."""
-    #     beam = self.single_beam(f_index)
-    #     return (np.abs(beam)**2 * self._horizon).sum() * (4*np.pi / beam.size)
-
-    def fringe(self, baselines, f_index):
-        """The exponential fringes of some baselines."""
+    def _fringe(self, baselines, f_index):
+        ## The exponential fringes of some baselines.
 
         # Get baseline separation and fringe map.
         uv = baselines / self.wavelengths[f_index]
@@ -57,54 +49,12 @@ class FourierTransformTelescope(telescope.TransitTelescope):
         uv = uv.reshape(-1, 2).T.reshape((2,) + shp[:-1])
         return visibility.fringe(self._angpos, self.zenith, uv)
 
-    # @abc.abstractmethod
-    # @staticmethod
-    # def prod(x1, x2):
-    #     """Return the product of `x1` and `x2`."""
-    #     return x1 * x2
-
-    # @abc.abstractmethod
-    # @staticmethod
-    # def inv(x):
-    #     """Return the inverse of `x`."""
-    #     return 1.0 / x
-
-    # @abc.abstractmethod
-    # @staticmethod
-    # def hconj(x):
-    #     """Return the Hermitian conjugate of `x`."""
-    #     return np.conj(x)
-
-    # def vis(self, sky_map, baselines, f_index, add_noise=True):
-    #     """The observed visibilities of some baselines given a sky map `sky_map`."""
-    #     beam = self.single_beam(f_index)
-    #     BSBdagger = self.prod(self.prod(beam, sky_map), self.hconj(beam))
-    #     fringe = self.fringe(baselines, f_index)
-    #     beam_ang = self.beam_solid_angle(f_index)
-
-    #     vis = (BSBdagger * fringe / beam_ang).sum(axis=-1) * (4 * pi / sky_map.shape[-1])
-    #     if add_noise:
-    #         vis += self._noise(baselines, f_index)
-
-    #     return vis
-
-    @abc.abstractproperty
-    def blvector(self):
-        """Baselines vector of the array."""
-        return self.baselines
-
     _skymap = None
 
     @property
     def skymap(self):
         """The sky map to generate simulated visibilities."""
         return self._skymap
-
-    # @abc.abstractmethod
-    # def load_skymap(self, mapfiles=[], nside=64):
-    #     """Load sky map from a list of files. If no input map files, a zero
-    #     Healpix map with NSIDE=`nside` will be generated."""
-    #     return
 
     @staticmethod
     def _read_in_data_from_h5files(files):
@@ -149,7 +99,6 @@ class FourierTransformTelescope(telescope.TransitTelescope):
 
         self._original_map = hpmap
 
-
     _rotate_angle = 0
 
     def rotate_skymap(self, angle=0):
@@ -163,14 +112,36 @@ class FourierTransformTelescope(telescope.TransitTelescope):
         return
 
     @abc.abstractmethod
-    def gen_visibily(self, fi_index, add_noise=True):
+    def gen_visibily_fi(self, fi_index, add_noise=True):
         """Generate simulated visibilities at one frequency for an input sky map."""
         return
 
+    def gen_visibily(self, add_noise=True):
+        """Generate simulated visibilities for all observing frequencies."""
+        vis0 = self.gen_visibily_fi(0, add_noise=add_noise)
+        vis = np.zeros((self.nfreq,) + vis0.shape, dtype=vis0.dtype)
+        vis[0] = vis0
+        for f_index in range(1, self.nfreq):
+            vis[f_index] = self.gen_visibily_fi(f_index, add_noise=add_noise)
+
+        return vis
+
+    ################### For map-making ########################
+
     @abc.abstractmethod
-    def map_making(self, vis_file):
-        """Map-making for the input visibilities."""
+    def map_making_fi(self, vis_fi, f_index, rot_ang=0):
+        """Map-making for one frequency for the input visibilities."""
         return
+
+    def map_making(self, vis, rot_ang=0):
+        """Map-making for all observing frequencies."""
+        map0 = self.map_making_fi(vis[0], 0, rot_ang=rot_ang)
+        maps = np.zeros((self.nfreq,) + map0.shape, dtype=map0.dtype)
+        maps[0] = map0
+        for f_index in range(1, self.nfreq):
+            maps[f_index] = self.map_making_fi(vis[f_index], f_index, rot_ang=rot_ang)
+
+        return maps
 
     @abc.abstractmethod
     def qvector(self, f_index):
@@ -180,7 +151,7 @@ class FourierTransformTelescope(telescope.TransitTelescope):
     def k_z(self, f_index):
         """The magnitude of k_z for corresponding qvector. k_z = sqrt(k^2 - q^2)."""
         q = self.qvector(f_index)
-        q2 = q[0]**2 + q[1]**2
+        q2 = q[:, :, 0]**2 + q[:, :, 1]**2
 
         return np.sqrt(self.k[f_index]**2 - q2)
 
@@ -200,34 +171,13 @@ class FourierTransformTelescope(telescope.TransitTelescope):
 
         return hp.vec2pix(self._nside, k[..., 0], k[..., 1], k[..., 2])
 
-    # @abc.abstractmethod
-    # @staticmethod
-    # def fourier_transform(vis):
-    #     """Fourier transform `vis` at an array of q-vectors."""
-    #     return
+    ###################### Noise related ######################
 
-    # def map_making(self, vis, f_index):
-    #     """Map-making via Fourier transforming the visibilities."""
-    #     SBq = self.fourier_transform(vis)
-    #     kkz = self.k(f_index) * self.k_z(f_index)
-    #     invB = self.inv(self.single_beam(f_index))
-
-    #     Sq = kkz * self.prod(self.prod(self.hconj(invB), SBq), invB)
-
-
-    def noise_amp(self, f_index):
-        """Noise temperature amplitude for one frequency channel, Unit: K.
-
-        Calculated as lambda^2 * T_sys / A_eff * sqrt(delta_nu * t).
-        """
+    def _noise_amp(self, f_index):
+        ## Noise temperature amplitude for one frequency channel, Unit: K.
+        ## Calculated as lambda^2 * T_sys / A_eff * sqrt(delta_nu * t).
         band_width = self.freq_upper - self.freq_lower # MHz
         return self.wavelengths[f_index]**2 *self.tsys(f_index) / (self.Aeff * np.sqrt(1.0e6 * band_width * self.t_int))
-
-    # def _noise(self, baselines, f_index):
-    #     ## Noise temperature for an array of baselines for one frequency channel, Unit: K
-
-    #     # complex noise, maybe divide by sqrt(2) ???
-    #     return self.noise_amp(f_index) * (np.random.normal(size=baselines.shape[:-1]) + 1.0J * np.random.normal(size=baselines.shape[:-1]))
 
     @abc.abstractmethod
     def _noise(self, baselines, f_index):
@@ -260,6 +210,26 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
         """Baselines vector of the array."""
         return self.baselines
 
+    ################# For generating visibilities ##############
+
+    def pack_skymap(self):
+        """Pack the skymap to appropriate format.
+
+        For unpolarised telescope the shape of the packed sky map is (nfreq, npix).
+        """
+        self._skymap = self._original_map[:, 0, :]
+
+
+    def gen_visibily_fi(self, fi_index, add_noise=True):
+        """Generate simulated visibilities at one frequency for an input sky map."""
+        bfi = self.beam_map(fi_index)
+        vis = (bfi * self.skymap[fi_index]).sum(axis=-1) * (4 * np.pi / self.skymap.shape[-1])
+
+        if add_noise:
+            vis += telescope.noise(fi)
+
+        return vis
+
     def single_beam(self, f_index):
         """A healpix map of the primary beam."""
         return self.beam(0, f_index) # all feeds are the same
@@ -275,11 +245,7 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
 
         """
         beam = self.single_beam(f_index) # all feeds are the same
-        # Get baseline separation and fringe map.
-        # uv = baselines / self.wavelengths[f_index]
-        # shp = uv.shape
-        # uv = uv.reshape(-1, 2).T.reshape((2,) + shp[:-1])
-        fringe = self.fringe(baselines, f_index)
+        fringe = self._fringe(baselines, f_index)
 
         # Beam solid angle (integrate over beam^2 - equal area pixels)
         omega_A = self.beam_solid_angle(f_index)
@@ -310,34 +276,18 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
 
         return prod[self.hp_pix(f_index)] / kk_z
 
+    ###################### Noise related ######################
+
     def _noise(self, baselines, f_index):
         ## Noise temperature for some baselines for one frequency channel, Unit: K
         shp = baseline.shape[:-1]
         cnormal = np.random.normal(size=shp) + 1.0J * np.random.normal(size=shp)
-        return self.noise_amp(f_index) * cnormal
+        return self._noise_amp(f_index) * cnormal
 
     def noise(self, f_index):
         """Noise temperature for all baselines for one frequency channel, Unit: K
         """
-        return self._noise(self.baseline, f_index)
-
-    def pack_skymap(self):
-        """Pack the skymap to appropriate format.
-
-        For unpolarised telescope the shape of the packed sky map is (nfreq, npix).
-        """
-        self._skymap = self._original_map[:, 0, :]
-
-
-    def gen_visibily(self, fi_index, add_noise=True):
-        """Generate simulated visibilities at one frequency for an input sky map."""
-        bfi = self.beam_map(fi_index)
-        vis = (bfi * self.skymap[fi_index]).sum(axis=-1) * (4 * np.pi / self.skymap.shape[-1])
-
-        if add_noise:
-            vis += telescope.noise(fi)
-
-        return vis
+        return self._noise(self.blvector, f_index)
 
 
 
@@ -400,75 +350,6 @@ class FFTTelescope(FourierTransformTelescope):
         return 2 * self.nfeeds_v - 1
 
     @property
-    def bl_grid(self):
-        """The baseline grid.
-
-        Packed as array([[[u1, v1], [u2, v1], [u3, v1], ...],
-                         [[u1, v2], [u2, v2], [u3, v2], ...],
-                         [[u1, v3], [u2, v3], [u3, v3], ...],
-                         ...])
-        with shape (nbls_v, nbls_u, 2).
-
-        """
-        bl = [ np.array([iu * self.delta_u, iv * self.delta_v]) for iv in range(-(self.nfeeds_v - 1), self.nfeeds_v) for iu in range(-(self.nfeeds_u - 1), self.nfeeds_u) ]
-        bl = np.array(bl).reshape((self.nbls_v, self.nbls_u, 2))
-
-        return bl
-
-    @property
-    def q_grid(self):
-        """The q vector grid (k_x, k_y).
-
-        Packed as array([[[k_x1, k_y1], [k_x2, k_y1], ...],
-                         [[k_x1, k_y2], [k_x2, k_y2], ...],
-                         ...])
-        with shape (nbls_v, nbls_u, 2).
-
-        """
-        delta_kx = 2 * np.pi / (self.nbls_u * self.delta_u)
-        delta_ky = 2 * np.pi / (self.nbls_v * self.delta_v)
-
-        q = [ np.array([ix * delta_kx, iy * delta_ky]) for iy in range(-(self.nfeeds_v - 1), self.nfeeds_v) for ix in range(-(self.nfeeds_u - 1), self.nfeeds_u) ]
-        q = np.array(q).reshape((self.nbls_v, self.nbls_u, 2))
-
-        return q
-
-    @property
-    def blvector(self):
-        return self.bl_grid
-
-    def qvector(self, f_index):
-        return self.q_grid
-
-    # def k_z(self, ifreq):
-    #     """The magnitude of k_z for frequency channel `ifreq`. k_z = sqrt(k^2 - q^2).
-
-    #     Shape (nbls_v, nbls_u).
-
-    #     """
-    #     q2 = self.q_grid[:, :, 0]**2 + self.q_grid[:, :, 1]**2
-
-    #     return np.sqrt(self.k[ifreq]**2 - q2)
-
-    # def hp_pix(self, ifreq):
-    #     """The corresponding healpix map pixel for vector k = (k_x, k_y, kz).
-
-    #     Shape (nbls_v, nbls_u).
-
-    #     """
-    #     # unit vectors in equatorial coordinate
-    #     zhat = coord.sph_to_cart(self.zenith)
-    #     uhat, vhat = visibility.uv_plane_cart(self.zenith)
-
-    #     # convert k-vectors in local coordinate to equatorial coordinate
-    #     kz = self.k_z(ifreq)
-    #     shp = self.q_grid.shape
-    #     q = self.q_grid.reshape(-1, 2).T.reshape(2, shp[:-1])
-    #     k = (np.outer(q[0], uhat) + np.outer(q[1], vhat) + np.outer(kz, zhat)).reshape(kz.shape + zhat.shape)
-
-    #     return hp.vec2pix(self._nside, k[..., 0], k[..., 1], k[..., 2])
-
-    @property
     def _single_feedpositions(self):
         """The set of feed positions.
 
@@ -482,6 +363,45 @@ class FFTTelescope(FourierTransformTelescope):
 
         return np.array(fplist)
 
+    @property
+    def blvector(self):
+        return self._bl_grid
+
+    def qvector(self, f_index):
+        return self._q_grid
+
+    @property
+    def _bl_grid(self):
+        ## The baseline grid.
+
+        ## Packed as array([[[u1, v1], [u2, v1], [u3, v1], ...],
+        ##                  [[u1, v2], [u2, v2], [u3, v2], ...],
+        ##                  [[u1, v3], [u2, v3], [u3, v3], ...],
+        ##                  ...])
+        ## with shape (nbls_v, nbls_u, 2).
+
+        bl = [ np.array([iu * self.delta_u, iv * self.delta_v]) for iv in range(-(self.nfeeds_v - 1), self.nfeeds_v) for iu in range(-(self.nfeeds_u - 1), self.nfeeds_u) ]
+        bl = np.array(bl).reshape((self.nbls_v, self.nbls_u, 2))
+
+        return bl
+
+    @property
+    def _q_grid(self):
+        ## The q vector grid (k_x, k_y).
+
+        ## Packed as array([[[k_x1, k_y1], [k_x2, k_y1], ...],
+        ##                  [[k_x1, k_y2], [k_x2, k_y2], ...],
+        ##                  ...])
+        ## with shape (nbls_v, nbls_u, 2).
+
+        delta_kx = 2 * np.pi / (self.nbls_u * self.delta_u)
+        delta_ky = 2 * np.pi / (self.nbls_v * self.delta_v)
+
+        q = [ np.array([ix * delta_kx, iy * delta_ky]) for iy in range(-(self.nfeeds_v - 1), self.nfeeds_v) for ix in range(-(self.nfeeds_u - 1), self.nfeeds_u) ]
+        q = np.array(q).reshape((self.nbls_v, self.nbls_u, 2))
+
+        return q
+
 
 
 
@@ -490,37 +410,10 @@ class UnpolarisedFFTTelescope(FFTTelescope, UnpolarisedFourierTransformTelescope
 
     """
 
-    # def beam_map(self, f_index):
-    #     """Return a heapix map of |A(n)|^2 * e^(2 * pi * i * n * u_ij) / Omega
-    #     for all baselines in one frequency channel.
-
-    #     Shape (nbls_v, nbls_u, n_pix).
-
-    #     """
-    #     return self._beam_map(self.bl_grid, f_index)
-
-    # def beam_prod(self, ifreq):
-    #     """Return |A(q)|^2 / (Omega * k * sqrt(k^2 - q^2)) in the q_grid.
-
-    #     Shape (nbls_v, nbls_u).
-
-    #     """
-    #     beam = self.beam(0, ifreq) # all feeds are the same
-    #     # Beam solid angle (integrate over beam^2 - equal area pixels)
-    #     omega_A = (np.abs(beam)**2 * self._horizon).sum() * (4*np.pi / beam.size)
-
-    #     prod = self._horizon * np.abs(beam)**2 / omega_A
-    #     kk_z = self.k[ifreq] * self.k_z(ifreq)
-
-    #     return prod[self.hp_pix(ifreq)] / kk_z
-
     def noise(self, f_index):
         """Noise temperature for all baselines for one frequency channel, Unit: K
         """
         return self._noise(self.bl_grid, f_index)
-
-
-
 
 
 
@@ -586,34 +479,27 @@ class UnpolarisedCylinderFFTTelescope(CylinderFFTTelescope, cylinder.Unpolarised
     def v_width(self):
         return 0.0
 
-    def map_making(self, vis_file):
-        """Map-making for the input visibilities."""
-        with h5py.File(vis_file, 'r') as f:
-            vis = f['vis'][...]
-            fi = f.attrs['f_index']
+    def map_making_fi(self, vis_fi, f_index, rot_ang=0):
+        """Map-making for one frequency for the input visibilities."""
 
         # first arrange data according to fftfreq
-        fft_vis = np.fft.ifftshift(vis)
-        fft_vis = np.prod(vis.shape) * np.fft.ifft2(vis).real
+        fft_vis = np.fft.ifftshift(vis_fi)
+        fft_vis = np.prod(vis_fi.shape) * np.fft.ifft2(vis_fi).real
         # fft_vis = np.fft.ifftshift(fft_vis)
         # fft_vis = np.fft.fftshift(fft_vis)
 
-        beam_prod = self.beam_prod(fi)
+        beam_prod = self.beam_prod(f_index)
         # T_grid = fft_vis / beam_prod
         T_grid = np.ma.divide(fft_vis, beam_prod)
 
         # convert to healpix map
-        T_map = np.zeros((1, 12 * telescope._nside**2), dtype=T_grid.dtype)
-        # T_map[..., telescope.hp_pix(fi)] = T_grid.flatten()
-        T_map[..., telescope.hp_pix(fi)] = T_grid
+        T_map = np.zeros((4, 12 * self._nside**2), dtype=T_grid.dtype)
+        T_map[0, self.hp_pix(f_index)] = T_grid # only T
 
         # inversely rotate the sky map
-        T_map = rot.rotate_map(T_map, rot=(telescope.rot_ang, 0.0, 0.0))
+        T_map = rot.rotate_map(T_map, rot=(rot_ang, 0.0, 0.0))
 
         return T_map
-
-
-
 
 
 
