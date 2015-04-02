@@ -130,17 +130,17 @@ class FourierTransformTelescope(telescope.TransitTelescope):
     ################### For map-making ########################
 
     @abc.abstractmethod
-    def map_making_fi(self, vis_fi, f_index, rot_ang=0):
+    def map_making_fi(self, vis_fi, f_index, rot_ang=0, divide_beam=True):
         """Map-making for one frequency for the input visibilities."""
         return
 
-    def map_making(self, vis, rot_ang=0):
+    def map_making(self, vis, rot_ang=0, divide_beam=True):
         """Map-making for all observing frequencies."""
-        map0 = self.map_making_fi(vis[0], 0, rot_ang=rot_ang)
+        map0 = self.map_making_fi(vis[0], 0, rot_ang=rot_ang, divide_beam=divide_beam)
         maps = np.zeros((self.nfreq,) + map0.shape, dtype=map0.dtype)
         maps[0] = map0
         for f_index in range(1, self.nfreq):
-            maps[f_index] = self.map_making_fi(vis[f_index], f_index, rot_ang=rot_ang)
+            maps[f_index] = self.map_making_fi(vis[f_index], f_index, rot_ang=rot_ang, divide_beam=divide_beam)
 
         return maps
 
@@ -155,6 +155,10 @@ class FourierTransformTelescope(telescope.TransitTelescope):
         q2 = q[..., 0]**2 + q[..., 1]**2
 
         return np.sqrt(self.k[f_index]**2 - q2)
+
+    def kk_z(self, f_index):
+        """Return k * sqrt(k**2 - q**2)."""
+        return self.k[f_index] * self.k_z(f_index)
 
     def hp_pix(self, f_index):
         """The corresponding healpix map pixel for vector k = (k_x, k_y, k_z).
@@ -263,7 +267,7 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
 
     ################### For map-making ########################
 
-    _threshould = 0.1
+    _threshould = 0.0
 
     def qvector(self, f_index):
         """The q vector for Fourier transform map-making. vec(q) = (k_x, k_y)."""
@@ -284,7 +288,7 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
         return q
 
     def beam_prod(self, f_index):
-        """Return |A(q)|^2 / (Omega * k * sqrt(k^2 - q^2)) in the q_grid.
+        """Return |A(q)|^2 / Omega in the q_grid.
 
         Shape (nbls_v, nbls_u).
 
@@ -294,11 +298,10 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
         omega_A = self.beam_solid_angle(f_index)
 
         prod = self._horizon * np.abs(beam)**2 / omega_A
-        kk_z = self.k[f_index] * self.k_z(f_index)
 
-        return prod[self.hp_pix(f_index)] / kk_z
+        return prod[self.hp_pix(f_index)]
 
-    def map_making_fi(self, vis_fi, f_index, rot_ang=0):
+    def map_making_fi(self, vis_fi, f_index, rot_ang=0, divide_beam=True):
         """Map-making for one frequency for the input visibilities."""
 
         qvector = self.qvector(f_index)
@@ -310,8 +313,11 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
         ft_vis /= self.blvector.shape[0]
         ft_vis = ft_vis.real # only the real part
 
-        beam_prod = self.beam_prod(f_index)
-        T = np.ma.divide(ft_vis, beam_prod)
+        kk_z = self.kk_z(f_index)
+        T = kk_z * ft_vis  # actually (|A|^2 / Omega) * T (dirty map)
+        if divide_beam:
+            beam_prod = self.beam_prod(f_index)
+            T = np.ma.divide(T, beam_prod) # clean map
 
         # convert to healpix map
         T_map = np.zeros((4, 12 * self._nside**2), dtype=T.dtype)
@@ -356,7 +362,6 @@ class PolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.Si
 
 
 
-# class UnpolarisedCylinderFourierTransformTelescope(UnpolarisedFourierTransformTelescope, exotic_cylinder.ArbitraryPolarisedCylinder):
 class UnpolarisedCylinderFourierTransformTelescope(exotic_cylinder.ArbitraryUnpolarisedCylinder, UnpolarisedFourierTransformTelescope):
     """A complete class for an Unpolarised Cylinder type Fourier Transform telescope.
     """
@@ -536,7 +541,7 @@ class UnpolarisedCylinderFFTTelescope(CylinderFFTTelescope, cylinder.Unpolarised
     def v_width(self):
         return 0.0
 
-    def map_making_fi(self, vis_fi, f_index, rot_ang=0):
+    def map_making_fi(self, vis_fi, f_index, rot_ang=0, divide_beam=True):
         """Map-making for one frequency for the input visibilities."""
 
         # first arrange data according to fftfreq
@@ -545,9 +550,11 @@ class UnpolarisedCylinderFFTTelescope(CylinderFFTTelescope, cylinder.Unpolarised
         # fft_vis = np.fft.ifftshift(fft_vis)
         # fft_vis = np.fft.fftshift(fft_vis)
 
-        beam_prod = self.beam_prod(f_index)
-        # T_grid = fft_vis / beam_prod
-        T_grid = np.ma.divide(fft_vis, beam_prod)
+        kk_z = self.kk_z(f_index)
+        T_grid = kk_z * fft_vis # actually (|A|^2 / Omega) * T (dirty map)
+        if divide_beam:
+            beam_prod = self.beam_prod(f_index)
+            T_grid = np.ma.divide(T_grid, beam_prod) # clean map
 
         # convert to healpix map
         T_map = np.zeros((4, 12 * self._nside**2), dtype=T_grid.dtype)

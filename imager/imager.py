@@ -90,6 +90,7 @@ class GenerateVisibility(TaskBase):
             f.create_dataset('vis', data=vis)
             f.attrs['t_obs'] = self.t_obs
             f.attrs['add_noise'] = self.add_noise
+            f.attrs['zenith'] = telescope.zenith
             f.create_dataset('baselines', data=telescope.blvector)
         return telescope
 
@@ -103,6 +104,7 @@ class FFTMapMaking(TaskBase):
 
     vis_file = config.Property(proptype=str, default='')
     output_file = config.Property(proptype=str, default='')
+    dirty_map = config.Property(proptype=bool, default=False) # get dirty map if True
 
     def setup(self):
         print 'Start to make sky maps.'
@@ -113,7 +115,7 @@ class FFTMapMaking(TaskBase):
             t_obs = f.attrs['t_obs']
             rot_ang = 360.0 * t_obs / sidereal_day # degree
 
-        T_map = telescope.map_making(vis, rot_ang=rot_ang)
+        T_map = telescope.map_making(vis, rot_ang=rot_ang, divide_beam=not(self.dirty_map))
 
         with h5py.File(self.output_file, 'w') as f:
             f.create_dataset('map', data=T_map)
