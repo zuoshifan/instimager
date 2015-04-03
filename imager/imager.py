@@ -24,7 +24,8 @@ class InitUnpolarisedCylinderFourierTransformTelescope(fourier.UnpolarisedCylind
 
     def setup(self):
         self.i = 0
-        print 'Initialize an unpolarised cylinder type FFT telescope.'
+        if mpiutil.rank0:
+            print 'Initialize an unpolarised cylinder type FFT telescope.'
 
     def next(self):
         if self.i > 0:
@@ -33,7 +34,8 @@ class InitUnpolarisedCylinderFourierTransformTelescope(fourier.UnpolarisedCylind
         return self # return a initialized instance
 
     def finish(self):
-        print 'Initialization done.'
+        if mpiutil.rank0:
+            print 'Initialization done.'
 
 
 
@@ -45,7 +47,8 @@ class InitUnpolCylinderFFTTelescope(fourier.UnpolarisedCylinderFFTTelescope, Tas
 
     def setup(self):
         self.i = 0
-        print 'Initialize an unpolarised cylinder type FFT telescope.'
+        if mpiutil.rank0:
+            print 'Initialize an unpolarised cylinder type FFT telescope.'
 
     def next(self):
         if self.i > 0:
@@ -54,7 +57,8 @@ class InitUnpolCylinderFFTTelescope(fourier.UnpolarisedCylinderFFTTelescope, Tas
         return self # return a initialized instance
 
     def finish(self):
-        print 'Initialization done.'
+        if mpiutil.rank0:
+            print 'Initialization done.'
 
 
 
@@ -68,24 +72,16 @@ class GenerateVisibility(TaskBase):
     output_file = config.Property(proptype=str, default='')
 
     def setup(self):
-        print 'Begin to generate simulated visibilities.'
+        if mpiutil.rank0:
+            print 'Begin to generate simulated visibilities.'
 
     def next(self, telescope):
-        nfreq = telescope.nfreq
 
-        # Load the input maps
-        telescope.load_skymap(self.maps)
-
-        # rotate the sky map
-        # the earth rotation angle, equivalently the sky rotates a negative rot_ang
         rot_ang = 360.0 * self.t_obs / sidereal_day # degree
-        telescope.rotate_skymap(-rot_ang)
-
-        # Pack the skymap to appropriate format.
-        telescope.pack_skymap()
 
         # generate visibilities
-        vis = telescope.gen_visibily(add_noise=self.add_noise)
+        # the earth rotation angle, equivalently the sky rotates a negative rot_ang
+        vis = telescope.gen_visibily(self.maps, rot_ang=-rot_ang, add_noise=self.add_noise)
         with h5py.File(self.output_file, 'w') as f:
             f.create_dataset('vis', data=vis)
             f.attrs['t_obs'] = self.t_obs
@@ -95,7 +91,8 @@ class GenerateVisibility(TaskBase):
         return telescope
 
     def finish(self):
-        print 'Generating visibilities done.'
+        if mpiutil.rank0:
+            print 'Generating visibilities done.'
 
 
 
@@ -107,7 +104,8 @@ class FFTMapMaking(TaskBase):
     dirty_map = config.Property(proptype=bool, default=False) # get dirty map if True
 
     def setup(self):
-        print 'Start to make sky maps.'
+        if mpiutil.rank0:
+            print 'Start to make sky maps.'
 
     def next(self, telescope):
         with h5py.File(self.vis_file, 'r') as f:
@@ -121,4 +119,5 @@ class FFTMapMaking(TaskBase):
             f.create_dataset('map', data=T_map)
 
     def finish(self):
-        print 'Making sky maps done.'
+        if mpiutil.rank0:
+            print 'Making sky maps done.'

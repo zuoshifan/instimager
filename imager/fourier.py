@@ -117,8 +117,15 @@ class FourierTransformTelescope(telescope.TransitTelescope):
         """Generate simulated visibilities at one frequency for an input sky map."""
         return
 
-    def gen_visibily(self, add_noise=True):
+    def gen_visibily(self, mapfiles, rot_ang=0, add_noise=True):
         """Generate simulated visibilities for all observing frequencies."""
+        # Load the input maps
+        self.load_skymap(mapfiles)
+        # rotate the sky map
+        self.rotate_skymap(rot_ang)
+        # Pack the skymap to appropriate format.
+        self.pack_skymap()
+
         vis0 = self.gen_visibily_fi(0, add_noise=add_noise)
         vis = np.zeros((self.nfreq,) + vis0.shape, dtype=vis0.dtype)
         vis[0] = vis0
