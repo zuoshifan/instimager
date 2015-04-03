@@ -26,8 +26,8 @@ class FourierTransformTelescope(telescope.TransitTelescope):
 
     @abc.abstractproperty
     def blvector(self):
-        """Baselines vector of the array."""
-        return self.baselines
+        """Unique baselines vector of the array including conjugate baselines."""
+        return
 
     @property
     def k(self):
@@ -212,8 +212,14 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
 
     @property
     def blvector(self):
-        """Baselines vector of the array."""
-        return self.baselines
+        """Unique baselines vector of the array including conjugate baselines."""
+        bl = self.baselines
+        if self.auto_correlations:
+            bl = np.concatenate((-bl[:0:-1], bl), axis=0) # avoid repeated [0, 0] baseline
+        else:
+            bl = np.concatenate((-bl[::-1], bl), axis=0)
+
+        return bl
 
     ################# For generating visibilities ##############
 
