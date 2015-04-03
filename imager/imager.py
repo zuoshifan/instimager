@@ -82,12 +82,17 @@ class GenerateVisibility(TaskBase):
         # generate visibilities
         # the earth rotation angle, equivalently the sky rotates a negative rot_ang
         vis = telescope.gen_visibily(self.maps, rot_ang=-rot_ang, add_noise=self.add_noise)
-        with h5py.File(self.output_file, 'w') as f:
-            f.create_dataset('vis', data=vis)
-            f.attrs['t_obs'] = self.t_obs
-            f.attrs['add_noise'] = self.add_noise
-            f.attrs['zenith'] = telescope.zenith
-            f.create_dataset('baselines', data=telescope.blvector)
+
+        if mpiutil.rank0:
+            with h5py.File(self.output_file, 'w') as f:
+                f.create_dataset('vis', data=vis)
+                f.attrs['t_obs'] = self.t_obs
+                f.attrs['add_noise'] = self.add_noise
+                f.attrs['zenith'] = telescope.zenith
+                f.create_dataset('baselines', data=telescope.blvector)
+
+        mpiutil.barrier()
+
         return telescope
 
     def finish(self):
@@ -115,8 +120,9 @@ class FFTMapMaking(TaskBase):
 
         T_map = telescope.map_making(vis, rot_ang=rot_ang, divide_beam=not(self.dirty_map))
 
-        with h5py.File(self.output_file, 'w') as f:
-            f.create_dataset('map', data=T_map)
+        if mpiutil.rank0:
+            with h5py.File(self.output_file, 'w') as f:
+                f.create_dataset('map', data=T_map)
 
     def finish(self):
         if mpiutil.rank0:

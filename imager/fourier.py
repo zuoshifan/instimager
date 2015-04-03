@@ -6,6 +6,7 @@ import h5py
 from cora.util import coord
 
 from caput import config
+from caput import mpiutil
 
 import telescope
 import cylinder
@@ -57,40 +58,44 @@ class FourierTransformTelescope(telescope.TransitTelescope):
         """The sky map to generate simulated visibilities."""
         return self._skymap
 
-    @staticmethod
-    def _read_in_data_from_h5files(files):
+    def _read_in_data_from_h5files(self, files, fi_range):
         ## Read in data contained in HDF5 files.
         files = list(files)
         if len(files) == 0:
             raise ValueError('No input files')
         # read meta data from the first file
+
+        sfreq, efreq = fi_range
+
         data = None
         for fl in files:
             with h5py.File(fl, 'r') as f:
                 if data is None:
-                    data = f['map'][...]
+                    data = f['map'][sfreq:efreq]
                 else:
-                    data += f['map'][...]
+                    data += f['map'][sfreq:efreq]
 
         return data
 
     _original_map = None
 
-    def load_skymap(self, mapfiles, nside=64):
-        """Load sky map from a list of files. If no input map files, a zero
-        Healpix map with NSIDE=`nside` will be created."""
+    def load_skymap(self, mapfiles, fi_range, nside=64):
+        """Load sky map from a list of files for a range of frequencies. If no
+        input map files, a zero Healpix map with NSIDE=`nside` will be created."""
         try:
-            hpmap = self._read_in_data_from_h5files(mapfiles)
+            hpmap = self._read_in_data_from_h5files(mapfiles, fi_range)
         except ValueError:
             warnings.warn('No input sky maps, return a zeros sky map instead')
             # initialize angular positions in healpix map
             self._init_trans(nside)
-            self._original_map = np.zeros((self.nfreq, 4, 12*nside**2), dtype=np.float64)
+            self._original_map = np.zeros((len(range(fi_list)), 4, 12*nside**2), dtype=np.float64)
 
         shp = hpmap.shape
         if shp != 3 and shp[1] != 4:
             raise ValueError('Unsupported sky map file')
-        nfreq = shp[0]
+        local_nfreq = np.array(shp[0])
+        nfreq = np.array(0)
+        mpiutil.Allreduce(local_nfreq, nfreq)
         if nfreq != self.nfreq:
             raise ValueError('Input sky map has different frequency channels with the observing frequencies')
         nside = hp.npix2nside(shp[-1]) # to see if an valid number of pixels
@@ -113,41 +118,61 @@ class FourierTransformTelescope(telescope.TransitTelescope):
         return
 
     @abc.abstractmethod
-    def gen_visibily_fi(self, f_index, add_noise=True):
-        """Generate simulated visibilities at one frequency for an input sky map."""
+    def gen_visibily_fi(self, fi_range, add_noise=True):
+        """Generate simulated visibilities for a range of frequencies for an input sky map."""
         return
 
     def gen_visibily(self, mapfiles, rot_ang=0, add_noise=True):
         """Generate simulated visibilities for all observing frequencies."""
+
+        nfreqs, sfreqs, efreqs = mpiutil.split_all(self.nfreq)
+        nfreq, sfreq, efreq = mpiutil.split_local(self.nfreq)
+        lfrange = (sfreq, efreq) # local frequency range
+
         # Load the input maps
-        self.load_skymap(mapfiles)
+        self.load_skymap(mapfiles, lfrange)
         # rotate the sky map
         self.rotate_skymap(rot_ang)
         # Pack the skymap to appropriate format.
         self.pack_skymap()
 
-        vis0 = self.gen_visibily_fi(0, add_noise=add_noise)
-        vis = np.zeros((self.nfreq,) + vis0.shape, dtype=vis0.dtype)
-        vis[0] = vis0
-        for f_index in range(1, self.nfreq):
-            vis[f_index] = self.gen_visibily_fi(f_index, add_noise=add_noise)
+        local_vis = self.gen_visibily_fi(lfrange, add_noise=add_noise)
+        shp = local_vis.shape
+        vis = None
+        if mpiutil.rank0:
+            vis = np.zeros((self.nfreq,) + shp[1:], dtype=local_vis.dtype)
+
+        sizes = nfreqs * np.prod(shp[1:])
+        displ = sfreqs * np.prod(shp[1:])
+        dtype = local_vis.dtype
+        mpiutil.Gatherv(local_vis, [vis, sizes, displ, mpiutil.typemap(dtype)], root=0)
 
         return vis
 
     ################### For map-making ########################
 
     @abc.abstractmethod
-    def map_making_fi(self, vis_fi, f_index, rot_ang=0, divide_beam=True):
-        """Map-making for one frequency for the input visibilities."""
+    def map_making_fi(self, vis_range, fi_range, rot_ang=0, divide_beam=True):
+        """Map-making for a range of frequencies for the input visibilities."""
         return
 
     def map_making(self, vis, rot_ang=0, divide_beam=True):
         """Map-making for all observing frequencies."""
-        map0 = self.map_making_fi(vis[0], 0, rot_ang=rot_ang, divide_beam=divide_beam)
-        maps = np.zeros((self.nfreq,) + map0.shape, dtype=map0.dtype)
-        maps[0] = map0
-        for f_index in range(1, self.nfreq):
-            maps[f_index] = self.map_making_fi(vis[f_index], f_index, rot_ang=rot_ang, divide_beam=divide_beam)
+
+        nfreqs, sfreqs, efreqs = mpiutil.split_all(self.nfreq)
+        nfreq, sfreq, efreq = mpiutil.split_local(self.nfreq)
+        lfrange = (sfreq, efreq) # local frequency range
+
+        local_map = self.map_making_fi(vis[sfreq:efreq], lfrange, rot_ang=rot_ang, divide_beam=divide_beam)
+        shp = local_map.shape
+        maps = None
+        if mpiutil.rank0:
+            maps = np.zeros((self.nfreq,) + shp[1:], dtype=local_map.dtype)
+
+        sizes = nfreqs * np.prod(shp[1:])
+        displ = sfreqs * np.prod(shp[1:])
+        dtype = local_map.dtype
+        mpiutil.Gatherv(local_map, [maps, sizes, displ, mpiutil.typemap(dtype)], root=0)
 
         return maps
 
@@ -238,13 +263,19 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
         self._skymap = self._original_map[:, 0, :]
 
 
-    def gen_visibily_fi(self, f_index, add_noise=True):
-        """Generate simulated visibilities at one frequency for an input sky map."""
-        bfi = self.beam_map(f_index)
-        vis = (bfi * self.skymap[f_index]).sum(axis=-1) * (4 * np.pi / self.skymap.shape[-1])
+    def gen_visibily_fi(self, fi_range, add_noise=True):
+        """Generate simulated visibilities for a range of frequencies for an input sky map."""
+        fi_list = range(fi_range[0], fi_range[1])
+        nfi = len(fi_list)
+        shp = self.beam_map(0).shape
+        vis = np.zeros((nfi,) + shp[:-1], dtype=np.complex128)
 
-        if add_noise:
-            vis += telescope.noise(fi)
+        for (idx, f_index) in enumerate(fi_list):
+            bfi = self.beam_map(f_index)
+            vis[idx] = (bfi * self.skymap[idx]).sum(axis=-1) * (4 * np.pi / self.skymap.shape[-1])
+
+            if add_noise:
+                vis[idx] += telescope.noise(f_index)
 
         return vis
 
@@ -280,7 +311,7 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
 
     ################### For map-making ########################
 
-    _threshould = 0.0
+    _threshould = 0.5
 
     def qvector(self, f_index):
         """The q vector for Fourier transform map-making. vec(q) = (k_x, k_y)."""
@@ -314,32 +345,37 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
 
         return prod[self.hp_pix(f_index)]
 
-    def map_making_fi(self, vis_fi, f_index, rot_ang=0, divide_beam=True):
-        """Map-making for one frequency for the input visibilities."""
+    def map_making_fi(self, vis_range, fi_range, rot_ang=0, divide_beam=True):
+        """Map-making for a range of frequencies for the input visibilities."""
 
-        qvector = self.qvector(f_index)
-        ft_vis = np.zeros(qvector.shape[0], dtype=np.complex128)
-        for (qi, q) in enumerate(qvector):
-            for (bi, bl) in enumerate(self.blvector):
-                ft_vis[qi] += vis_fi[bi] * np.exp(1.0J * (q[0] * bl[0] + q[1] * bl[1]))
+        fi_list = range(fi_range[0], fi_range[1])
+        nfi = len(fi_list)
+        T_map = np.zeros((nfi, 4, 12 * self._nside**2), dtype=np.float64)
 
-        ft_vis /= self.blvector.shape[0]
-        ft_vis = ft_vis.real # only the real part
+        for (idx, f_index) in enumerate(fi_list):
+            qvector = self.qvector(f_index)
+            ft_vis = np.zeros(qvector.shape[0], dtype=np.complex128)
+            vis_fi = vis_range[idx]
+            for (qi, q) in enumerate(qvector):
+                for (bi, bl) in enumerate(self.blvector):
+                    ft_vis[qi] += vis_fi[bi] * np.exp(1.0J * (q[0] * bl[0] + q[1] * bl[1]))
 
-        kk_z = self.kk_z(f_index)
-        T = kk_z * ft_vis  # actually (|A|^2 / Omega) * T (dirty map)
-        if divide_beam:
-            beam_prod = self.beam_prod(f_index)
-            T = np.ma.divide(T, beam_prod) # clean map
+            ft_vis /= self.blvector.shape[0]
+            ft_vis = ft_vis.real # only the real part
 
-        # convert to healpix map
-        T_map = np.zeros((4, 12 * self._nside**2), dtype=T.dtype)
-        T_map[0, self.hp_pix(f_index)] = T # only T
+            kk_z = self.kk_z(f_index)
+            T = kk_z * ft_vis  # actually (|A|^2 / Omega) * T (dirty map)
+            if divide_beam:
+                beam_prod = self.beam_prod(f_index)
+                T = np.ma.divide(T, beam_prod) # clean map
+                # T /= beam_prod
 
-        # inversely rotate the sky map
-        T_map = rot.rotate_map(T_map, rot=(rot_ang, 0.0, 0.0))
+            T_map[idx, 0, self.hp_pix(f_index)] = T # only T
 
-        return T_map
+            # inversely rotate the sky map
+            T_map = rot.rotate_map(T_map, rot=(rot_ang, 0.0, 0.0))
+
+        return np.ascontiguousarray(T_map) # Return a contiguous array in memory (C order) as mpi4py requires that
 
 
     ###################### Noise related ######################
