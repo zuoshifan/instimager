@@ -358,7 +358,8 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
             vis_fi = vis_range[idx]
             for (qi, q) in enumerate(qvector):
                 for (bi, bl) in enumerate(self.blvector):
-                    ft_vis[qi] += vis_fi[bi] * np.exp(1.0J * (q[0] * bl[0] + q[1] * bl[1]))
+                    # ft_vis[qi] += vis_fi[bi] * np.exp(1.0J * (q[0] * bl[0] + q[1] * bl[1]))
+                    ft_vis[qi] += vis_fi[bi] * np.exp(-1.0J * (q[0] * bl[0] + q[1] * bl[1]))
 
             ft_vis /= self.blvector.shape[0]
             ft_vis = ft_vis.real # only the real part
