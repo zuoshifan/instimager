@@ -247,27 +247,37 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
         Routines giving the field pattern for the feeds.
     """
 
+    _blvector = None
+
     @property
     def blvector(self):
         """Unique baselines vector of the array including conjugate baselines."""
-        bl = self.baselines
-        if self.auto_correlations:
-            bl = np.concatenate((-bl[:0:-1], bl), axis=0) # avoid repeated [0, 0] baseline
-        else:
-            bl = np.concatenate((-bl[::-1], bl), axis=0)
+        if self._blvector is None:
+            bl = self.baselines
+            if self.auto_correlations:
+                bl = np.concatenate((-bl[:0:-1], bl), axis=0) # avoid repeated [0, 0] baseline
+            else:
+                bl = np.concatenate((-bl[::-1], bl), axis=0)
 
-        return bl
+            self._blvector = bl
+
+        return self._blvector
+
+    _blredundancy = None
 
     @property
     def blredundancy(self):
         """The number of each unique baseline corresponds to blvector."""
-        rd = self.redundancy
-        if self.auto_correlations:
-            rd = np.concatenate((-rd[:0:-1], rd)) # take care of [0, 0] baseline
-        else:
-            rd = np.concatenate((-bl[::-1], rd))
+        if self._blredundancy is None:
+            rd = self.redundancy
+            if self.auto_correlations:
+                rd = np.concatenate((-rd[:0:-1], rd)) # take care of [0, 0] baseline
+            else:
+                rd = np.concatenate((-bl[::-1], rd))
 
-        return rd
+            self._blredundancy = rd
+
+        return self._blredundancy
 
     ################# For generating visibilities ##############
 
