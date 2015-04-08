@@ -30,6 +30,11 @@ class FourierTransformTelescope(telescope.TransitTelescope):
         """Unique baselines vector of the array including conjugate baselines."""
         return
 
+    @abc.abstractproperty
+    def blredundancy(self):
+        """The number of each unique baseline corresponds to blvector."""
+        return
+
     @property
     def k(self):
         """The central wavevector magnitude of each frequency band (in metres^-1)."""
@@ -253,6 +258,17 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
 
         return bl
 
+    @property
+    def blredundancy(self):
+        """The number of each unique baseline corresponds to blvector."""
+        rd = self.redundancy
+        if self.auto_correlations:
+            rd = np.concatenate((-rd[:0:-1], rd)) # take care of [0, 0] baseline
+        else:
+            rd = np.concatenate((-bl[::-1], rd))
+
+        return rd
+
     ################# For generating visibilities ##############
 
     def pack_skymap(self):
@@ -358,10 +374,11 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
             vis_fi = vis_range[idx]
             for (qi, q) in enumerate(qvector):
                 for (bi, bl) in enumerate(self.blvector):
+                    rd = self.blredundancy[bi] # baseline redundancy
                     # ft_vis[qi] += vis_fi[bi] * np.exp(1.0J * (q[0] * bl[0] + q[1] * bl[1]))
-                    ft_vis[qi] += vis_fi[bi] * np.exp(-1.0J * (q[0] * bl[0] + q[1] * bl[1]))
+                    ft_vis[qi] += rd *vis_fi[bi] * np.exp(-1.0J * (q[0] * bl[0] + q[1] * bl[1]))
 
-            ft_vis /= self.blvector.shape[0]
+            ft_vis /= np.sum(self.blredundancy)
             ft_vis = ft_vis.real # only the real part
 
             kk_z = self.kk_z(f_index)
