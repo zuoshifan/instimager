@@ -68,7 +68,6 @@ class FourierTransformTelescope(telescope.TransitTelescope):
         files = list(files)
         if len(files) == 0:
             raise ValueError('No input files')
-        # read meta data from the first file
 
         sfreq, efreq = fi_range
 
@@ -93,7 +92,9 @@ class FourierTransformTelescope(telescope.TransitTelescope):
             warnings.warn('No input sky maps, return a zeros sky map instead')
             # initialize angular positions in healpix map
             self._init_trans(nside)
-            self._original_map = np.zeros((len(range(fi_list)), 4, 12*nside**2), dtype=np.float64)
+            self._original_map = np.zeros((len(range(fi_range[0], fi_range[1])), 4, 12*nside**2), dtype=np.float64)
+
+            return
 
         shp = hpmap.shape
         if shp != 3 and shp[1] != 4:
@@ -337,13 +338,13 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
 
     ################### For map-making ########################
 
-    _threshould = 0.5
+    _threshould = 0.0
 
     def qvector(self, f_index):
         """The q vector for Fourier transform map-making. vec(q) = (k_x, k_y)."""
         beam = self.single_beam(f_index)
         # select index where beam response larger than the given threshould
-        (idx,) = np.where(beam > self._threshould)
+        (idx,) = np.where(beam > self._threshould * beam.max())
         nvec = hp.pix2vec(self._nside, idx)
 
         # unit vectors in equatorial coordinate
