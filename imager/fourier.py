@@ -272,9 +272,9 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
         if self._blredundancy is None:
             rd = self.redundancy
             if self.auto_correlations:
-                rd = np.concatenate((-rd[:0:-1], rd)) # take care of [0, 0] baseline
+                rd = np.concatenate((rd[:0:-1], rd)) # take care of [0, 0] baseline
             else:
-                rd = np.concatenate((-bl[::-1], rd))
+                rd = np.concatenate((rd[::-1], rd))
 
             self._blredundancy = rd
 
@@ -386,14 +386,14 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
             for (qi, q) in enumerate(qvector):
                 for (bi, bl) in enumerate(self.blvector):
                     rd = self.blredundancy[bi] # baseline redundancy
-                    # ft_vis[qi] += vis_fi[bi] * np.exp(1.0J * (q[0] * bl[0] + q[1] * bl[1]))
-                    ft_vis[qi] += rd *vis_fi[bi] * np.exp(-1.0J * (q[0] * bl[0] + q[1] * bl[1]))
+                    ft_vis[qi] += rd * vis_fi[bi] * np.exp(-1.0J * (q[0] * bl[0] + q[1] * bl[1]))
 
             ft_vis /= np.sum(self.blredundancy)
             ft_vis = ft_vis.real # only the real part
 
             kk_z = self.kk_z(f_index)
-            T = kk_z * ft_vis  # actually (|A|^2 / Omega) * T (dirty map)
+            # T = kk_z * ft_vis  # actually (|A|^2 / Omega) * T (dirty map)
+            T = ft_vis  # actually (|A|^2 / Omega) * T (dirty map)
             if divide_beam:
                 beam_prod = self.beam_prod(f_index)
                 T = np.ma.divide(T, beam_prod) # clean map
