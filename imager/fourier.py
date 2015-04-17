@@ -13,6 +13,7 @@ import cylinder
 import exotic_cylinder
 import visibility
 import rotate as rot
+import fouriertransform as ft
 
 
 
@@ -381,18 +382,20 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
 
         for (idx, f_index) in enumerate(fi_list):
             qvector = self.qvector(f_index)
-            ft_vis = np.zeros(qvector.shape[0], dtype=np.complex128)
+            # ft_vis = np.zeros(qvector.shape[0], dtype=np.complex128)
             vis_fi = vis_range[idx]
-            for (qi, q) in enumerate(qvector):
-                for (bi, bl) in enumerate(self.blvector):
-                    rd = self.blredundancy[bi] # baseline redundancy
-                    ft_vis[qi] += rd * vis_fi[bi] * np.exp(-1.0J * (q[0] * bl[0] + q[1] * bl[1]))
+            # for (qi, q) in enumerate(qvector):
+            #     for (bi, bl) in enumerate(self.blvector):
+            #         rd = self.blredundancy[bi] # baseline redundancy
+            #         ft_vis[qi] += rd * vis_fi[bi] * np.exp(-1.0J * (q[0] * bl[0] + q[1] * bl[1]))
 
-            ft_vis /= np.sum(self.blredundancy)
-            ft_vis = ft_vis.real # only the real part
+            # ft_vis /= np.sum(self.blredundancy)
+            # ft_vis = ft_vis.real # only the real part
+
+            dirty_T = ft.ft_vis(vis_fi, qvector, self.blvector, self.blredundancy)
 
             kk_z = self.kk_z(f_index)
-            T = kk_z * ft_vis  # actually (|A|^2 / Omega) * T (dirty map)
+            T = kk_z * dirty_T  # actually (|A|^2 / Omega) * T (dirty map)
             if divide_beam:
                 beam_prod = self.beam_prod(f_index)
                 T = np.ma.divide(T, beam_prod) # clean map
