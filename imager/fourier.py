@@ -344,7 +344,7 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
         """The q vector for Fourier transform map-making. vec(q) = (k_x, k_y)."""
         beam = self.single_beam(f_index)
         # select index where beam response larger than the given threshould
-        (idx,) = np.where(beam > self._threshould * beam.max())
+        (idx,) = np.where(beam >= self._threshould * beam.max())
         nvec = hp.pix2vec(self._nside, idx)
 
         # unit vectors in equatorial coordinate
@@ -392,8 +392,7 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
             ft_vis = ft_vis.real # only the real part
 
             kk_z = self.kk_z(f_index)
-            # T = kk_z * ft_vis  # actually (|A|^2 / Omega) * T (dirty map)
-            T = ft_vis  # actually (|A|^2 / Omega) * T (dirty map)
+            T = kk_z * ft_vis  # actually (|A|^2 / Omega) * T (dirty map)
             if divide_beam:
                 beam_prod = self.beam_prod(f_index)
                 T = np.ma.divide(T, beam_prod) # clean map
