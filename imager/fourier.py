@@ -1,10 +1,7 @@
 import abc
 import numpy as np
 import healpy as hp
-from healpy import projaxes as PA
 import h5py
-import matplotlib
-matplotlib.use('Agg')
 
 from cora.util import coord
 
@@ -163,18 +160,18 @@ class FourierTransformTelescope(telescope.TransitTelescope):
     ################### For map-making ########################
 
     @abc.abstractmethod
-    def map_making_fi(self, vis_range, fi_range, rot_ang=0, dirty_beam=False, ker=None, mdl=None):
+    def map_making_fi(self, vis_range, fi_range, rot_ang=0, dirty_beam=False, simple_divide=True):
         """Map-making for a range of frequencies for the input visibilities."""
         return
 
-    def map_making(self, vis, rot_ang=0, dirty_beam=True, ker=None, mdl=None):
+    def map_making(self, vis, rot_ang=0, dirty_beam=False, simple_divide=True):
         """Map-making for all observing frequencies."""
 
         nfreqs, sfreqs, efreqs = mpiutil.split_all(self.nfreq)
         nfreq, sfreq, efreq = mpiutil.split_local(self.nfreq)
         lfrange = (sfreq, efreq) # local frequency range
 
-        local_map = self.map_making_fi(vis[sfreq:efreq], lfrange, rot_ang=rot_ang, dirty_beam=dirty_beam, ker=ker, mdl=mdl)
+        local_map = self.map_making_fi(vis[sfreq:efreq], lfrange, rot_ang=rot_ang, dirty_beam=dirty_beam, simple_divide=simple_divide)
         shp = local_map.shape
         maps = None
         if mpiutil.rank0:
@@ -381,13 +378,12 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
 
         return prod[self.hp_pix(f_index)]
 
-    def map_making_fi(self, vis_range, fi_range, rot_ang=0, dirty_beam=True, ker=None, mdl=None):
+    def map_making_fi(self, vis_range, fi_range, rot_ang=0, dirty_beam=False, simple_divide=True):
         """Map-making for a range of frequencies for the input visibilities."""
 
         fi_list = range(fi_range[0], fi_range[1])
         nfi = len(fi_list)
         T_map = np.zeros((nfi, 4, 12 * self._nside**2), dtype=np.float64)
-        ker = np.zeros((nfi, 4, 12 * self._nside**2), dtype=np.float64)
 
         for (idx, f_index) in enumerate(fi_list):
             qvector = self.qvector(f_index)
@@ -403,28 +399,33 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
 
             if dirty_beam:
                 dirty_T = ft.ft_vis(vis_fi, qvector, self.blvector, self.blredundancy, return_psf=False)
+                T_map[idx, 0, self.hp_pix(f_index)] = dirty_T # only T
             else:
                 dirty_T, psf = ft.ft_vis(vis_fi, qvector, self.blvector, self.blredundancy, return_psf=True)
-                psf /= self.k[f_index]**2
+                # psf /= self.k[f_index]**2
 
-            # kk_z = self.kk_z(f_index)
-            # T = kk_z * dirty_T  # actually (|A|^2 / Omega) * T (dirty map)
-            if dirty_beam:
-                T_map[idx, 0, self.hp_pix(f_index)] = dirty_T # only T
-            else:
-                # beam_prod = self.beam_prod(f_index)
-                # T = np.ma.divide(T, beam_prod) # clean map
-                # T /= beam_prod
+                if simple_divide:
+                    kk_z = self.kk_z(f_index)
+                    T = kk_z * dirty_T  # actually (|A|^2 / Omega) * T (dirty map)
+                    beam_prod = self.beam_prod(f_index)
+                    T = np.ma.divide(T, beam_prod) # clean map
+                    # T /= beam_prod
+                    T_map[idx, 0, self.hp_pix(f_index)] = T # only T
+                else:
+                    raise NotImplementedError('Maximum-entropy deconvolution uncompleted yet')
 
-                T_map[idx, 0, self.hp_pix(f_index)] = dirty_T # only T
-                ker[idx, 0, self.hp_pix(f_index)] = psf # only T
-                cart_T = hp.cartview(T_map[idx, 0], return_projected_map=True)
-                ker = hp.cartview(ker[idx, 0], return_projected_map=True)
-                mdl = hp.cartview(self.skymap[idx], return_projected_map=True)
-                deconv_T = deconv.maxent_findvar(cart_T, ker, mdl=mdl)
-                print deconv_T.shape
+                    T_map[idx, 0, self.hp_pix(f_index)] = dirty_T # only T
+                    ker = np.zeros_like(T_map[idx, 0])
+                    ker[self.hp_pix(f_index)] = psf / self.k[f_index]**2 # only T
 
-            # T_map[idx, 0, self.hp_pix(f_index)] = T # only T
+                    import matplotlib
+                    matplotlib.use('Agg')
+
+                    cart_T = hp.cartview(T_map[idx, 0], return_projected_map=True)
+                    ker = hp.cartview(ker[idx, 0], return_projected_map=True)
+                    mdl = hp.cartview(self.skymap[idx], return_projected_map=True)
+                    deconv_T = deconv.maxent_findvar(cart_T, ker, mdl=mdl)
+                    # need devonv_T -> T_map
 
             # inversely rotate the sky map
             T_map = rot.rotate_map(T_map, rot=(rot_ang, 0.0, 0.0))

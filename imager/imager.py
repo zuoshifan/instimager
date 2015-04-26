@@ -107,8 +107,7 @@ class FFTMapMaking(TaskBase):
     vis_file = config.Property(proptype=str, default='')
     output_file = config.Property(proptype=str, default='')
     dirty_map = config.Property(proptype=bool, default=False) # get dirty map if True
-    ker = config.Property(proptype=str, default='') # the PSF
-    mdl = config.Property(proptype=str, default='') # the model image
+    simple_divide = config.Property(proptype=bool, default=True) # get clean map by simple diveding the primary beam if True, by deconvolution else
 
     def setup(self):
         if mpiutil.rank0:
@@ -120,7 +119,7 @@ class FFTMapMaking(TaskBase):
             t_obs = f.attrs['t_obs']
             rot_ang = 360.0 * t_obs / sidereal_day # degree
 
-        T_map = telescope.map_making(vis, rot_ang=rot_ang, dirty_beam=self.dirty_map, ker=self.ker, mdl=self.mdl)
+        T_map = telescope.map_making(vis, rot_ang=rot_ang, dirty_beam=self.dirty_map, simple_divide=self.simple_divide)
 
         if mpiutil.rank0:
             with h5py.File(self.output_file, 'w') as f:
