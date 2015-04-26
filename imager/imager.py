@@ -25,7 +25,7 @@ class InitUnpolarisedCylinderFourierTransformTelescope(fourier.UnpolarisedCylind
     def setup(self):
         self.i = 0
         if mpiutil.rank0:
-            print 'Initialize an unpolarised cylinder type FFT telescope.'
+            print 'Initialize an unpolarised cylinder type Fourier transform telescope.'
 
     def next(self):
         if self.i > 0:
@@ -107,6 +107,8 @@ class FFTMapMaking(TaskBase):
     vis_file = config.Property(proptype=str, default='')
     output_file = config.Property(proptype=str, default='')
     dirty_map = config.Property(proptype=bool, default=False) # get dirty map if True
+    ker = config.Property(proptype=str, default='') # the PSF
+    mdl = config.Property(proptype=str, default='') # the model image
 
     def setup(self):
         if mpiutil.rank0:
@@ -118,7 +120,7 @@ class FFTMapMaking(TaskBase):
             t_obs = f.attrs['t_obs']
             rot_ang = 360.0 * t_obs / sidereal_day # degree
 
-        T_map = telescope.map_making(vis, rot_ang=rot_ang, divide_beam=not(self.dirty_map))
+        T_map = telescope.map_making(vis, rot_ang=rot_ang, dirty_beam=self.dirty_map, ker=self.ker, mdl=self.mdl)
 
         if mpiutil.rank0:
             with h5py.File(self.output_file, 'w') as f:

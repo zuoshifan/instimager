@@ -1,7 +1,10 @@
 import abc
 import numpy as np
 import healpy as hp
+from healpy import projaxes as PA
 import h5py
+import matplotlib
+matplotlib.use('Agg')
 
 from cora.util import coord
 
@@ -14,6 +17,7 @@ import exotic_cylinder
 import visibility
 import rotate as rot
 import fouriertransform as ft
+import deconv
 
 
 
@@ -159,18 +163,18 @@ class FourierTransformTelescope(telescope.TransitTelescope):
     ################### For map-making ########################
 
     @abc.abstractmethod
-    def map_making_fi(self, vis_range, fi_range, rot_ang=0, divide_beam=True):
+    def map_making_fi(self, vis_range, fi_range, rot_ang=0, dirty_beam=False, ker=None, mdl=None):
         """Map-making for a range of frequencies for the input visibilities."""
         return
 
-    def map_making(self, vis, rot_ang=0, divide_beam=True):
+    def map_making(self, vis, rot_ang=0, dirty_beam=True, ker=None, mdl=None):
         """Map-making for all observing frequencies."""
 
         nfreqs, sfreqs, efreqs = mpiutil.split_all(self.nfreq)
         nfreq, sfreq, efreq = mpiutil.split_local(self.nfreq)
         lfrange = (sfreq, efreq) # local frequency range
 
-        local_map = self.map_making_fi(vis[sfreq:efreq], lfrange, rot_ang=rot_ang, divide_beam=divide_beam)
+        local_map = self.map_making_fi(vis[sfreq:efreq], lfrange, rot_ang=rot_ang, dirty_beam=dirty_beam, ker=ker, mdl=mdl)
         shp = local_map.shape
         maps = None
         if mpiutil.rank0:
@@ -248,6 +252,8 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
     beam : method
         Routines giving the field pattern for the feeds.
     """
+
+    threshold = config.Property(proptype=float, default=0.0)
 
     _blvector = None
 
@@ -339,13 +345,15 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
 
     ################### For map-making ########################
 
-    _threshould = 0.0
+    # _threshould = 0.0
 
     def qvector(self, f_index):
         """The q vector for Fourier transform map-making. vec(q) = (k_x, k_y)."""
         beam = self.single_beam(f_index)
         # select index where beam response larger than the given threshould
-        (idx,) = np.where(beam >= self._threshould * beam.max())
+        (idx1,) = np.where(self._horizon) # above the horizon
+        (idx2,) = np.where(beam >= self.threshold * beam.max())
+        idx = np.intersect1d(idx1, idx2)
         nvec = hp.pix2vec(self._nside, idx)
 
         # unit vectors in equatorial coordinate
@@ -373,12 +381,13 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
 
         return prod[self.hp_pix(f_index)]
 
-    def map_making_fi(self, vis_range, fi_range, rot_ang=0, divide_beam=True):
+    def map_making_fi(self, vis_range, fi_range, rot_ang=0, dirty_beam=True, ker=None, mdl=None):
         """Map-making for a range of frequencies for the input visibilities."""
 
         fi_list = range(fi_range[0], fi_range[1])
         nfi = len(fi_list)
         T_map = np.zeros((nfi, 4, 12 * self._nside**2), dtype=np.float64)
+        ker = np.zeros((nfi, 4, 12 * self._nside**2), dtype=np.float64)
 
         for (idx, f_index) in enumerate(fi_list):
             qvector = self.qvector(f_index)
@@ -392,16 +401,30 @@ class UnpolarisedFourierTransformTelescope(FourierTransformTelescope, telescope.
             # ft_vis /= np.sum(self.blredundancy)
             # ft_vis = ft_vis.real # only the real part
 
-            dirty_T = ft.ft_vis(vis_fi, qvector, self.blvector, self.blredundancy)
+            if dirty_beam:
+                dirty_T = ft.ft_vis(vis_fi, qvector, self.blvector, self.blredundancy, return_psf=False)
+            else:
+                dirty_T, psf = ft.ft_vis(vis_fi, qvector, self.blvector, self.blredundancy, return_psf=True)
+                psf /= self.k[f_index]**2
 
-            kk_z = self.kk_z(f_index)
-            T = kk_z * dirty_T  # actually (|A|^2 / Omega) * T (dirty map)
-            if divide_beam:
-                beam_prod = self.beam_prod(f_index)
-                T = np.ma.divide(T, beam_prod) # clean map
+            # kk_z = self.kk_z(f_index)
+            # T = kk_z * dirty_T  # actually (|A|^2 / Omega) * T (dirty map)
+            if dirty_beam:
+                T_map[idx, 0, self.hp_pix(f_index)] = dirty_T # only T
+            else:
+                # beam_prod = self.beam_prod(f_index)
+                # T = np.ma.divide(T, beam_prod) # clean map
                 # T /= beam_prod
 
-            T_map[idx, 0, self.hp_pix(f_index)] = T # only T
+                T_map[idx, 0, self.hp_pix(f_index)] = dirty_T # only T
+                ker[idx, 0, self.hp_pix(f_index)] = psf # only T
+                cart_T = hp.cartview(T_map[idx, 0], return_projected_map=True)
+                ker = hp.cartview(ker[idx, 0], return_projected_map=True)
+                mdl = hp.cartview(self.skymap[idx], return_projected_map=True)
+                deconv_T = deconv.maxent_findvar(cart_T, ker, mdl=mdl)
+                print deconv_T.shape
+
+            # T_map[idx, 0, self.hp_pix(f_index)] = T # only T
 
             # inversely rotate the sky map
             T_map = rot.rotate_map(T_map, rot=(rot_ang, 0.0, 0.0))
