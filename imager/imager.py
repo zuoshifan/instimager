@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import healpy as hp
 import h5py
@@ -79,17 +80,23 @@ class GenerateVisibility(TaskBase):
 
         rot_ang = 360.0 * self.t_obs / sidereal_day # degree
 
-        # generate visibilities
-        # the earth rotation angle, equivalently the sky rotates a negative rot_ang
-        vis = telescope.gen_visibily(self.maps, rot_ang=-rot_ang, add_noise=self.add_noise)
+        if os.path.exists(self.output_file):
+            if mpiutil.rank0:
+                print 'Visibilities file %s already exists, use it...' % self.output_file
 
-        if mpiutil.rank0:
-            with h5py.File(self.output_file, 'w') as f:
-                f.create_dataset('vis', data=vis)
-                f.attrs['t_obs'] = self.t_obs
-                f.attrs['add_noise'] = self.add_noise
-                f.attrs['zenith'] = telescope.zenith
-                f.create_dataset('baselines', data=telescope.blvector)
+            telescope.gen_visibily(self.maps, rot_ang=-rot_ang, add_noise=self.add_noise, regen=False)
+        else:
+            # generate visibilities
+            # the earth rotation angle, equivalently the sky rotates a negative rot_ang
+            vis = telescope.gen_visibily(self.maps, rot_ang=-rot_ang, add_noise=self.add_noise)
+
+            if mpiutil.rank0:
+                with h5py.File(self.output_file, 'w') as f:
+                    f.create_dataset('vis', data=vis)
+                    f.attrs['t_obs'] = self.t_obs
+                    f.attrs['add_noise'] = self.add_noise
+                    f.attrs['zenith'] = telescope.zenith
+                    f.create_dataset('baselines', data=telescope.blvector)
 
         mpiutil.barrier()
 

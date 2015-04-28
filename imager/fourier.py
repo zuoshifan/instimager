@@ -130,7 +130,7 @@ class FourierTransformTelescope(telescope.TransitTelescope):
         """Generate simulated visibilities for a range of frequencies for an input sky map."""
         return
 
-    def gen_visibily(self, mapfiles, rot_ang=0, add_noise=True):
+    def gen_visibily(self, mapfiles, rot_ang=0, add_noise=True, regen=False):
         """Generate simulated visibilities for all observing frequencies."""
 
         nfreqs, sfreqs, efreqs = mpiutil.split_all(self.nfreq)
@@ -143,6 +143,9 @@ class FourierTransformTelescope(telescope.TransitTelescope):
         self.rotate_skymap(rot_ang)
         # Pack the skymap to appropriate format.
         self.pack_skymap()
+
+        if not regen:
+            return
 
         local_vis = self.gen_visibily_fi(lfrange, add_noise=add_noise)
         shp = local_vis.shape
