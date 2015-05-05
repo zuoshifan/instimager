@@ -88,7 +88,7 @@ class GenerateVisibility(TaskBase):
         else:
             # generate visibilities
             # the earth rotation angle, equivalently the sky rotates a negative rot_ang
-            vis = telescope.gen_visibily(self.maps, rot_ang=-rot_ang, add_noise=self.add_noise)
+            vis = telescope.gen_visibily(self.maps, rot_ang=-rot_ang, add_noise=self.add_noise, regen=True)
 
             if mpiutil.rank0:
                 with h5py.File(self.output_file, 'w') as f:
