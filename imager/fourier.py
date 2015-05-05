@@ -648,29 +648,42 @@ class UnpolarisedCylinderFFTTelescope(CylinderFFTTelescope, cylinder.Unpolarised
     def v_width(self):
         return 0.0
 
-    def map_making_fi(self, vis_fi, f_index, rot_ang=0, divide_beam=True):
-        """Map-making for one frequency for the input visibilities."""
+    def map_making_fi(self, vis_range, fi_range, rot_ang=0, dirty_beam=False, simple_divide=True):
+        """Map-making for a range of frequencies for the input visibilities."""
 
-        # first arrange data according to fftfreq
-        vis_fi = np.fft.ifftshift(vis_fi)
-        fft_vis = np.prod(vis_fi.shape) * np.fft.ifft2(vis_fi).real
-        # fft_vis = np.fft.ifftshift(fft_vis)
-        # fft_vis = np.fft.fftshift(fft_vis)
+        fi_list = range(fi_range[0], fi_range[1])
+        nfi = len(fi_list)
+        T_map = np.zeros((nfi, 4, 12 * self._nside**2), dtype=np.float64)
 
-        kk_z = self.kk_z(f_index)
-        T_grid = kk_z * fft_vis # actually (|A|^2 / Omega) * T (dirty map)
-        if divide_beam:
-            beam_prod = self.beam_prod(f_index)
-            T_grid = np.ma.divide(T_grid, beam_prod) # clean map
+        for (idx, f_index) in enumerate(fi_list):
+            vis_fi = vis_range[idx]
 
-        # convert to healpix map
-        T_map = np.zeros((4, 12 * self._nside**2), dtype=T_grid.dtype)
-        T_map[0, self.hp_pix(f_index)] = T_grid # only T
+            # first arrange data according to fftfreq
+            vis_fi = np.fft.ifftshift(vis_fi)
+            fft_vis = np.prod(vis_fi.shape) * np.fft.ifft2(vis_fi).real
+            # fft_vis = np.fft.ifftshift(fft_vis)
+            # fft_vis = np.fft.fftshift(fft_vis)
+
+            if dirty_beam:
+                dirty_T = fft_vis
+                # convert to healpix map
+                T_map[idx, self.hp_pix(f_index)] = dirty_T # only T
+            else:
+                if simple_divide:
+
+                    kk_z = self.kk_z(f_index)
+                    T_grid = kk_z * fft_vis # actually (|A|^2 / Omega) * T (dirty map)
+                    beam_prod = self.beam_prod(f_index)
+                    T_grid = np.ma.divide(T_grid, beam_prod) # clean map
+                    # convert to healpix map
+                    T_map[idx, 0, self.hp_pix(f_index)] = T_grid # only T
+                else:
+                   raise NotImplementedError('Maximum-entropy deconvolution uncompleted yet')
 
         # inversely rotate the sky map
         T_map = rot.rotate_map(T_map, rot=(rot_ang, 0.0, 0.0))
 
-        return T_map
+        return np.ascontiguousarray(T_map) # Return a contiguous array in memory (C order) as mpi4py requires that
 
 
 
